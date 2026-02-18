@@ -1,0 +1,347 @@
+/**
+ * ============================================================================
+ * Manager Requisition Detail — Layout & Utility Classes
+ * ============================================================================
+ *
+ * Replaces inline Tailwind utility classes in ManagerRequisitionDetails.tsx.
+ * Uses design tokens from variables.css.
+ */
+
+/* ── Header ─────────────────────────────────────────────────────────── */
+
+.manager-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.manager-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.manager-header-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.manager-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.meta-text {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.unsaved-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--warning, #e67700);
+}
+
+/* ── Save / Warning Messages ────────────────────────────────────────── */
+
+.save-message {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm);
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid;
+}
+
+.save-message--success {
+  background: var(--success-bg, #ecfdf5);
+  border-color: var(--success-border, #a7f3d0);
+  color: var(--success-text, #065f46);
+}
+
+.save-message--error {
+  background: var(--error-bg, #fef2f2);
+  border-color: var(--error-border, #fecaca);
+  color: var(--error-text, #991b1b);
+}
+
+.save-message--warning {
+  background: var(--warning-bg, #fffbeb);
+  border-color: var(--warning-border, #fde68a);
+  color: var(--warning-text, #92400e);
+}
+
+.save-message-content {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* ── Detail Grid (2-column + sidebar) ───────────────────────────────── */
+
+.manager-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-lg, 24px);
+  margin-top: var(--space-lg, 24px);
+}
+
+@media (min-width: 1024px) {
+  .manager-detail-grid {
+    grid-template-columns: 2fr 1fr;
+  }
+}
+
+.manager-detail-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg, 24px);
+}
+
+.manager-detail-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg, 24px);
+}
+
+/* ── 2-column field grid ────────────────────────────────────────────── */
+
+.field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md, 16px);
+}
+
+@media (max-width: 640px) {
+  .field-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Read-only field ────────────────────────────────────────────────── */
+
+.field-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-bottom: 2px;
+}
+
+.field-value {
+  color: var(--text-primary);
+}
+
+.field-value--bold {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* ── Item cards (positions) ─────────────────────────────────────────── */
+
+.position-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md, 16px);
+}
+
+.position-card {
+  padding: var(--space-md);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  transition: border-color 0.15s ease;
+}
+
+.position-card:hover {
+  border-color: var(--border-hover, #cbd5e1);
+}
+
+.position-card--editing {
+  background: var(--bg-secondary, #f8fafc);
+}
+
+.position-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--space-sm);
+}
+
+.position-card-title {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.position-card-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: 4px;
+}
+
+.position-badge {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--primary-accent-bg, #dbeafe);
+  color: var(--primary-accent, #1e40af);
+}
+
+.position-number {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--bg-secondary, #f1f5f9);
+  color: var(--text-secondary);
+}
+
+.position-section {
+  margin-top: var(--space-sm);
+}
+
+.position-section-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-bottom: 2px;
+}
+
+.position-section-text {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+
+/* ── Edit-mode position card ────────────────────────────────────────── */
+
+.position-edit-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-md);
+}
+
+.position-edit-title {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.position-remove-btn {
+  font-size: 0.75rem;
+  color: var(--error, #dc2626);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.position-remove-btn:hover {
+  color: var(--error-text, #991b1b);
+}
+
+/* ── Budget section ─────────────────────────────────────────────────── */
+
+.budget-section-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md, 16px);
+}
+
+.text-block {
+  padding: var(--space-sm);
+  background: var(--bg-secondary, #f8fafc);
+  border-radius: var(--radius-md, 8px);
+}
+
+/* ── JD / Attachment block ──────────────────────────────────────────── */
+
+.jd-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm);
+  background: var(--bg-secondary, #f8fafc);
+  border-radius: var(--radius-md, 8px);
+}
+
+.jd-file-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.jd-file-name {
+  font-weight: 500;
+}
+
+.jd-file-sub {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.jd-upload-controls {
+  margin-top: var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs, 8px);
+}
+
+.jd-upload-buttons {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.jd-upload-hint {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.jd-upload-error {
+  font-size: 0.75rem;
+  color: var(--error, #dc2626);
+}
+
+/* ── Approval cards ─────────────────────────────────────────────────── */
+
+.approval-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md, 16px);
+}
+
+.approval-card {
+  padding: var(--space-sm);
+  background: var(--success-bg, #ecfdf5);
+  border: 1px solid var(--success-border, #a7f3d0);
+  border-radius: var(--radius-md, 8px);
+}
+
+.approval-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: 4px;
+}
+
+.approval-card-title {
+  font-weight: 500;
+  color: var(--success-text, #065f46);
+}
+
+.approval-card-date {
+  font-size: 0.75rem;
+  color: var(--success-text, #065f46);
+  opacity: 0.85;
+}
+
+/* ── Currency input ─────────────────────────────────────────────────── */
+
+.currency-input-wrapper {
+  display: flex;
+  align-items: center;
+}
+
+.currency-symbol {
+  margin-right: var(--space-xs, 8px);
+  color: var(--text-secondary);
+}

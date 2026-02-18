@@ -1,0 +1,130 @@
+/* RBM Color Scheme & Design Tokens
+   Monochrome / Neutral Admin Theme */
+
+:root {
+  /* =========================
+     Primary / Accent Colors
+     ========================= */
+
+  /* Used sparingly for focus, active, highlights */
+  --primary-gradient-start: #111111;
+  --primary-gradient-end: #2a2a2a;
+
+  --primary-color: #111111;
+  --primary-hover: #1f1f1f;
+  --primary-active: #000000;
+
+  /* Secondary (muted emphasis) */
+  --secondary-color: #4b4b4b;
+  --secondary-hover: #3f3f3f;
+  --secondary-active: #2f2f2f;
+
+  /* =========================
+     Text Colors
+     ========================= */
+
+  --text-primary: #111111;
+  --text-secondary: #4b4b4b;
+  --text-tertiary: #7a7a7a;
+  --text-light: #ffffff;
+  --text-inverse: #f5f5f5;
+
+  /* =========================
+     Background Colors
+     ========================= */
+
+  --bg-primary: #ffffff;
+  --bg-secondary: #f7f7f7;
+  --bg-tertiary: #eeeeee;
+  --bg-muted: #fafafa;
+  --bg-dark: #111111;
+
+  /* =========================
+     Border Colors
+     ========================= */
+
+  --border-color: #e0e0e0;
+  --border-light: #eeeeee;
+  --border-strong: #cfcfcf;
+
+  /* =========================
+     Status Colors (Muted)
+     ========================= */
+
+  --success-color: #1f7a4d;
+  --warning-color: #a16207;
+  --error-color: #991b1b;
+  --info-color: #374151;
+
+  /* Semantic backgrounds */
+  --error-bg: #fdf2f2;
+  --error-text: #7f1d1d;
+  --error-border: #f3caca;
+
+  /* =========================
+     Shadows (Soft & Clean)
+     ========================= */
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.18);
+
+  /* =========================
+     Spacing
+     ========================= */
+
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 20px;
+  --spacing-2xl: 24px;
+  --spacing-3xl: 32px;
+
+  /* =========================
+     Border Radius
+     ========================= */
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* =========================
+     Font Sizes
+     ========================= */
+
+  --font-xs: 11px;
+  --font-sm: 12px;
+  --font-base: 14px;
+  --font-lg: 16px;
+  --font-xl: 18px;
+  --font-2xl: 22px;
+  --font-3xl: 28px;
+
+  /* =========================
+     Font Weights
+     ========================= */
+
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+
+  /* =========================
+     Transitions
+     ========================= */
+
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.25s ease;
+  --transition-slow: 0.4s ease;
+
+  /* =========================
+     Z-Index
+     ========================= */
+
+  --z-dropdown: 10;
+  --z-header: 100;
+  --z-modal: 1000;
+  --z-debug: 9999;
+}

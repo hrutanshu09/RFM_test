@@ -1,0 +1,217 @@
+.\venv\Scripts\python.exe -m alembic revision --autogenerate -m "message"
+.\venv\Scripts\python.exe -m alembic upgrade head
+
+
+/* 1. AUTHENTICATION & AUTHORIZATION (RBAC) */
+
+/* ---- USERS ---- */
+CREATE TABLE users (
+    user_id SERIAL PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login TIMESTAMP
+);
+
+/* ---- ROLES ---- */
+CREATE TABLE roles (
+    role_id SERIAL PRIMARY KEY,
+    role_name VARCHAR(30) UNIQUE NOT NULL
+);
+
+/* ---- USER ↔ ROLE MAPPING (Many-to-Many) ---- */
+CREATE TABLE user_roles (
+    user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
+    role_id INTEGER REFERENCES roles(role_id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, role_id)
+);
+
+
+
+
+/* 2. EMPLOYEE CORE (IDENTITY ONLY) */
+
+CREATE TABLE employees (
+    emp_id VARCHAR(20) PRIMARY KEY,                 -- Business ID (e.g., RBM-001)
+    full_name VARCHAR(100) NOT NULL,
+    rbm_email VARCHAR(100) UNIQUE NOT NULL,
+    dob DATE,
+    gender VARCHAR(10),
+    doj DATE,
+    emp_status VARCHAR(20)
+        CHECK (emp_status IN ('Active', 'On Leave', 'Exited'))
+        DEFAULT 'Active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+
+
+/* 3. ORGANIZATIONAL STRUCTURE */
+
+/* ---- DEPARTMENTS ---- */
+CREATE TABLE departments (
+    department_id SERIAL PRIMARY KEY,
+    department_name VARCHAR(50) UNIQUE NOT NULL
+);
+
+/* ---- LOCATIONS ---- */
+CREATE TABLE locations (
+    location_id SERIAL PRIMARY KEY,
+    city VARCHAR(50),
+    country VARCHAR(50)
+);
+
+/* ---- EMPLOYEE ASSIGNMENTS (HISTORICAL) ---- */
+CREATE TABLE employee_assignments (
+    assignment_id SERIAL PRIMARY KEY,
+    emp_id VARCHAR(20) REFERENCES employees(emp_id),
+    department_id INTEGER REFERENCES departments(department_id),
+    manager_id VARCHAR(20) REFERENCES employees(emp_id),
+    location_id INTEGER REFERENCES locations(location_id),
+    start_date DATE NOT NULL,
+    end_date DATE
+);
+
+
+
+
+/* 4. EMPLOYEE CONTACT INFORMATION */
+
+CREATE TABLE employee_contacts (
+    emp_id VARCHAR(20) REFERENCES employees(emp_id),
+    contact_type VARCHAR(20)
+        CHECK (contact_type IN ('Work', 'Personal', 'Emergency')),
+    email VARCHAR(100),
+    phone VARCHAR(15),
+    address TEXT,
+    PRIMARY KEY (emp_id, contact_type)
+);
+
+
+
+
+/* 5. SKILLS & QUALIFICATIONS */
+
+/* ---- SKILLS MASTER ---- */
+CREATE TABLE skills (
+    skill_id SERIAL PRIMARY KEY,
+    skill_name VARCHAR(50) UNIQUE NOT NULL
+);
+
+/* ---- EMPLOYEE SKILLS ---- */
+CREATE TABLE employee_skills (
+    emp_id VARCHAR(20) REFERENCES employees(emp_id),
+    skill_id INTEGER REFERENCES skills(skill_id),
+    proficiency_level VARCHAR(20),                 -- Junior / Mid / Senior
+    years_experience DECIMAL(4,1),
+    PRIMARY KEY (emp_id, skill_id)
+);
+
+/* ---- EDUCATION ---- */
+CREATE TABLE employee_education (
+    edu_id SERIAL PRIMARY KEY,
+    emp_id VARCHAR(20) REFERENCES employees(emp_id),
+    qualification VARCHAR(100),
+    specialization VARCHAR(100),
+    institution VARCHAR(100),
+    year_completed INTEGER
+);
+
+
+
+
+/*6. FINANCIAL & SENSITIVE DATA (RESTRICTED ACCESS) */
+
+CREATE TABLE employee_finance (
+    emp_id VARCHAR(20) PRIMARY KEY REFERENCES employees(emp_id),
+    bank_details_encrypted BYTEA,                   -- Encrypted at application layer
+    tax_id VARCHAR(50)
+);
+
+
+
+
+/* 7. AVAILABILITY & UTILIZATION TRACKING */
+
+CREATE TABLE employee_availability (
+    emp_id VARCHAR(20) REFERENCES employees(emp_id),
+    availability_pct INTEGER
+        CHECK (availability_pct BETWEEN 0 AND 100),
+    effective_from DATE NOT NULL,
+    PRIMARY KEY (emp_id, effective_from)
+);
+
+
+
+
+/* 8. RESOURCE REQUISITIONS (HEADER) */
+
+CREATE TABLE requisitions (
+    req_id SERIAL PRIMARY KEY,
+    raised_by INTEGER REFERENCES users(user_id),
+    approved_by INTEGER REFERENCES users(user_id),
+    client_name VARCHAR(100),
+    justification TEXT,
+    priority VARCHAR(10)
+        CHECK (priority IN ('High', 'Medium', 'Low')),
+    budget NUMERIC(12,2),
+    budget_approved BOOLEAN DEFAULT FALSE,
+    required_by DATE,
+    status VARCHAR(20)
+        CHECK (status IN ('Open', 'In Progress', 'Closed', 'Cancelled')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+
+
+/* 9. REQUISITION LINE ITEMS */
+
+CREATE TABLE requisition_items (
+    item_id SERIAL PRIMARY KEY,
+    req_id INTEGER REFERENCES requisitions(req_id) ON DELETE CASCADE,
+    skill_id INTEGER REFERENCES skills(skill_id),
+    required_level VARCHAR(20),
+    education_requirement VARCHAR(100),
+    assigned_emp_id VARCHAR(20) REFERENCES employees(emp_id),
+    item_status VARCHAR(20)
+        CHECK (item_status IN ('Pending', 'Fulfilled', 'Cancelled'))
+);
+
+
+
+
+/* 10. STATUS HISTORY & AUDIT LOGGING */
+
+/* ---- REQUISITION STATUS HISTORY ---- */
+CREATE TABLE requisition_status_history (
+    history_id SERIAL PRIMARY KEY,
+    req_id INTEGER REFERENCES requisitions(req_id),
+    old_status VARCHAR(20),
+    new_status VARCHAR(20),
+    changed_by INTEGER REFERENCES users(user_id),
+    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+/* ---- SYSTEM AUDIT LOG ---- */
+CREATE TABLE audit_log (
+    audit_id SERIAL PRIMARY KEY,
+    entity_name VARCHAR(50),
+    entity_id VARCHAR(50),
+    action VARCHAR(20),                            -- CREATE / UPDATE / DELETE
+    performed_by INTEGER REFERENCES users(user_id),
+    performed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+
+
+/* 11. OPTIONAL PERFORMANCE INDEXES (RECOMMENDED)*/
+
+CREATE INDEX idx_employee_status ON employees(emp_status);
+CREATE INDEX idx_requisition_status ON requisitions(status);
+CREATE INDEX idx_requisition_priority ON requisitions(priority);
+CREATE INDEX idx_employee_skill ON employee_skills(skill_id);
+CREATE INDEX idx_assignment_manager ON employee_assignments(manager_id);

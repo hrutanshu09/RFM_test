@@ -1,0 +1,105 @@
+pip install fastapi uvicorn sqlalchemy psycopg2-binary python-dotenv
+
+sqlalchemy → ORM + connection pooling
+
+psycopg2-binary → PostgreSQL driver
+
+python-dotenv → clean secrets management
+ 
+Firts Problem
+
+this code have problem
+
+DATABASE_URL = (
+    f"postgresql://{os.getenv('DB_USER')}:"
+    f"{os.getenv('DB_PASSWORD')}@"
+    f"{os.getenv('DB_HOST')}:"
+    f"{os.getenv('DB_PORT')}/"
+    f"{os.getenv('DB_NAME')}"
+)
+
+
+this is correct code
+
+from urllib.parse import quote_plus
+
+DB_USER = quote_plus(os.getenv("DB_USER"))
+DB_PASSWORD = quote_plus(os.getenv("DB_PASSWORD"))
+
+DATABASE_URL = (
+    f"postgresql://{DB_USER}:{DB_PASSWORD}@"
+    f"{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/"
+    f"{os.getenv('DB_NAME')}"
+) 
+
+
+
+again correct version 
+
+from urllib.parse import quote_plus
+
+DB_USER = quote_plus(os.getenv("DB_USER"))
+DB_PASSWORD = quote_plus(os.getenv("DB_PASSWORD"))
+
+DATABASE_URL = (
+    f"postgresql://{DB_USER}:{DB_PASSWORD}@"
+    f"{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/"
+    f"{os.getenv('DB_NAME')}"
+)
+
+
+
+
+second problem
+
+never put an @ in the starting og your postgresql password
+
+
+
+
+What We Will Do Next (Preview)
+
+In the next step, we will:
+
+Create SQLAlchemy ORM models for:
+
+User
+
+Role
+
+UserRole (many-to-many)
+
+Autogenerate an Alembic migration
+
+Review the generated SQL
+
+Apply the migration
+
+Verify tables in PostgreSQL
+
+
+python -m pip install fastapi
+
+
+
+alembic command
+
+.\venv\Scripts\python.exe -m alembic revision --autogenerate -m "requisition_header"
+
+.\venv\Scripts\python.exe -m alembic upgrade head
+
+
+
+
+
+jwt secrate key
+8npRVsLejKk6ax76+pT26+cbnKM4IvOV7VZZ18lzbNHsRFN9P47Q0KRCJp7UjYKxZc8zdtuWtF3NnUcSh7VTTw==
+
+
+
+
+
+
+
+
+

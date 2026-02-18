@@ -1,0 +1,86 @@
+/* ============================================================================
+   Manager Dashboard — Semantic Styles
+   Replaces inline Tailwind utilities in ManagerDashboard.tsx
+   ============================================================================ */
+
+/* ---------- Alert row cards ---------- */
+.alert-row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.alert-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  background-color: var(--surface-secondary, #f8fafc);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.alert-card:hover {
+  background-color: var(--surface-hover, #f1f5f9);
+}
+
+.alert-card-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.alert-icon--danger {
+  color: var(--status-danger, #dc2626);
+}
+
+.alert-icon--warning {
+  color: var(--status-warning, #d97706);
+}
+
+.alert-card-title {
+  font-weight: 500;
+}
+
+.alert-card-detail {
+  font-size: 0.875rem;
+  color: var(--text-secondary, #475569);
+}
+
+.alert-card-action {
+  font-size: 0.75rem;
+  color: var(--text-tertiary, #64748b);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.alert-card-action:hover {
+  color: var(--text-primary);
+}
+
+/* ---------- Insight footer ---------- */
+.insight-footer {
+  margin-top: 24px;
+  padding: 16px;
+  background-color: var(--surface-secondary, #f8fafc);
+  border: 1px solid var(--border-subtle, #e2e8f0);
+  border-radius: 8px;
+}
+
+.insight-footer-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.insight-footer-title {
+  font-weight: 500;
+}
+
+.insight-footer-text {
+  font-size: 0.875rem;
+  color: var(--text-secondary, #475569);
+}

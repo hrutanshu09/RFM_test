@@ -1,0 +1,251 @@
+name: Workflow System Tests
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "backend/services/requisition/**"
+      - "backend/db/models/requisition*.py"
+      - "backend/alembic/versions/**"
+      - "backend/tests/test_workflow*.py"
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/services/requisition/**"
+      - "backend/db/models/requisition*.py"
+      - "backend/alembic/versions/**"
+      - "backend/tests/test_workflow*.py"
+
+jobs:
+  lint:
+    name: Lint Workflow Code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install linting tools
+        run: pip install flake8 mypy
+
+      - name: Lint with flake8
+        run: |
+          cd backend
+          flake8 services/requisition --max-line-length=100 --ignore=E501,W503
+
+      - name: Type check with mypy
+        run: |
+          cd backend
+          mypy services/requisition --ignore-missing-imports --no-error-summary || true
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Run unit tests
+        run: |
+          cd backend
+          pytest tests/test_workflow_unit.py -v --tb=short
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Run migrations
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: test
+          DB_PASSWORD: test
+          DB_NAME: test_db
+        run: |
+          cd backend
+          alembic upgrade head
+
+      - name: Run integration tests
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: test
+          DB_PASSWORD: test
+          DB_NAME: test_db
+        run: |
+          cd backend
+          pytest tests/test_workflow_integration.py -v --tb=short
+
+      - name: Verify schema
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: test
+          DB_PASSWORD: test
+          DB_NAME: test_db
+        run: |
+          cd backend
+          python scripts/verify_schema.py
+
+  concurrency-tests:
+    name: Concurrency Tests
+    runs-on: ubuntu-latest
+    needs: integration-tests
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Run migrations
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: test
+          DB_PASSWORD: test
+          DB_NAME: test_db
+        run: |
+          cd backend
+          alembic upgrade head
+
+      - name: Run concurrency tests
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: test
+          DB_PASSWORD: test
+          DB_NAME: test_db
+        run: |
+          cd backend
+          pytest tests/test_workflow_concurrency.py -v --tb=short -x
+
+  migration-check:
+    name: Migration Drift Check
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+
+      - name: Apply migrations
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: test
+          DB_PASSWORD: test
+          DB_NAME: test_db
+        run: |
+          cd backend
+          alembic upgrade head
+
+      - name: Check for migration drift
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: test
+          DB_PASSWORD: test
+          DB_NAME: test_db
+        run: |
+          cd backend
+          # Generate a new migration to see if there's drift
+          alembic revision --autogenerate -m "drift_check" 2>&1 | tee drift_check.log
+
+          # Check if the generated migration has any changes
+          if grep -q "No changes in schema detected" drift_check.log; then
+            echo "✓ No migration drift detected"
+          else
+            echo "⚠ Potential migration drift detected - review generated migration"
+            cat alembic/versions/*drift_check*.py 2>/dev/null || true
+            # Don't fail, just warn
+          fi

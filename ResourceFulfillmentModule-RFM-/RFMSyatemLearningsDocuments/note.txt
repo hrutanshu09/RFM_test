@@ -1,0 +1,517 @@
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+import json
+
+from db.session import get_db
+from db.models.auth import User, Role, UserRole
+from db.models.employee import Employee
+from db.models.skill import Skill
+from db.models.location import Location
+from db.models.department import Department
+from db.models.audit_log import AuditLog
+from utils.dependencies import require_role
+
+router = APIRouter(prefix="/admin", tags=["Admin Overview"])
+
+
+@router.get("/overview")
+def get_admin_overview(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("Admin")),
+):
+    total_users = db.query(func.count(User.user_id)).scalar() or 0
+    total_employees = db.query(func.count(Employee.emp_id)).scalar() or 0
+    total_skills = db.query(func.count(Skill.skill_id)).scalar() or 0
+    total_locations = db.query(func.count(Location.location_id)).scalar() or 0
+    total_departments = db.query(func.count(Department.department_id)).scalar() or 0
+
+    roles_rows = (
+        db.query(Role.role_name, func.count(UserRole.user_id))
+        .outerjoin(UserRole, Role.role_id == UserRole.role_id)
+        .group_by(Role.role_name)
+        .all()
+    )
+    roles_breakdown = {role_name: count for role_name, count in roles_rows}
+
+    overview_payload = {
+        "total_users": total_users,
+        "total_employees": total_employees,
+        "total_skills": total_skills,
+        "total_locations": total_locations,
+        "total_departments": total_departments,
+        "roles_breakdown": roles_breakdown,
+    }
+
+    audit = AuditLog(
+        entity_name="overview",
+        entity_id=None,
+        action="OVERVIEW_VIEW",
+        performed_by=current_user.user_id,
+        new_value=json.dumps(overview_payload),
+    )
+    db.add(audit)
+    db.commit()
+
+    return overview_payload
+
+
+
+
+
+
+
+
+I want to fully upgrade the Audit Log feature to production quality.
+This includes making all controls functional, improving data semantics,
+and refining the UI to match an enterprise admin system.
+
+REFRESH BUTTON (NOT WORKING)
+Make the Refresh button re-fetch audit logs from the backend
+It should:
+• Reset pagination (if any)
+• Reapply current filters
+• Show loading state while fetching
+No page reloads
+
+
+
+
+
+
+EXPORT LOGS (PDF – STRUCTURED)
+Make Export Logs button functional
+Export audit logs as a STRUCTURED PDF:
+• Title: "Audit Log Report"
+• Date range (if filters applied)
+• Generated timestamp
+• Table layout with columns:
+Timestamp
+User (Name + Role)
+Action
+Entity
+Details
+Backend should generate the PDF
+Use a proper PDF library (e.g. reportlab / weasyprint)
+Frontend triggers download via API
+File name format:
+audit-log-YYYY-MM-DD.pdf
+
+
+
+
+
+
+
+SEARCH (DYNAMIC + INTELLIGENT)
+Search must be dynamic and powerful:
+Single search input
+Case-insensitive
+Matches against:
+• Username
+• Full name
+• Target user name
+• Action
+Behavior:
+If admin searches "admin" → show all admin-related logs
+If admin searches "tej_admin" → show logs involving that user
+Search should debounce (300ms)
+Search should work together with filters
+
+
+
+
+
+
+
+
+
+
+
+FILTERS (FUNCTIONAL + SIMPLIFIED)
+Make filters fully functional.
+KEEP:
+
+Timestamp (from → to)
+User (dropdown, show name + role)
+Action
+REMOVE:
+
+Severity filter (no longer needed)
+Backend:
+
+Accept filter params cleanly
+Combine filters + search in one query
+
+
+
+think we need filter reset button
+
+
+
+
+
+
+
+
+TABLE STRUCTURE CHANGES (IMPORTANT)
+Update Audit Log table columns to EXACTLY this:
+Timestamp → No change
+User → Show FULL NAME + ROLE (not just role)
+Action → No change
+Entity → No change
+Details → Human-readable explanation:
+Examples:
+- "Assigned HR role to user John Doe"
+- "Marked user Jane Smith as inactive"
+- "Viewed user list"
+REMOVE COMPLETELY:
+
+Severity
+IP Address
+View button
+
+
+
+
+
+DASHBOARD CARDS (VERIFY + FIX IF NEEDED)
+Ensure these cards are accurate and working:
+Total Logs
+Warnings & Errors
+Active Users
+Failed Logins
+Rules:
+
+Values must come from backend aggregation
+Cards must update when filters/search are applied
+No hardcoded numbers
+UI / UX REQUIREMENTS
+
+No flashy animations
+Clean spacing
+Consistent with Admin Dashboard cards & tables
+Accessible (labels, keyboard navigation)
+No inline CSS — use proper styles
+
+
+
+
+
+
+
+Button Placement Is Not Intuitive
+
+“Apply Filters” and “Reset Filters” are placed inline with input controls.
+
+This makes the layout feel crowded and slightly form-like instead of dashboard-like.
+
+Expected behavior
+
+Filters (inputs) should be grouped together.
+
+Actions (Apply / Reset) should be visually separated or aligned to the right as a clear action group.
+
+Vertical Density Is Slightly High
+
+Filter section, cards, and table are stacked tightly.
+
+There is no strong visual “break” between:
+
+Filters
+
+Metrics
+
+Data table
+
+This makes the page feel long and form-heavy.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+in the master data i want remove Description and Status from the table for each skill, department and location also
+
+and for add new form should follow this css
+.edit-user-modal {
+max-width: 720px;
+}
+
+.modal-subtitle {
+margin-top: 4px;
+font-size: 13px;
+color: var(--text-tertiary);
+}
+
+.edit-user-body {
+display: grid;
+gap: 20px;
+}
+
+.edit-user-section {
+padding: 16px 18px;
+border: 1px solid var(--border-light);
+border-radius: 14px;
+background: var(--bg-primary);
+}
+
+.edit-user-section .section-header {
+margin-bottom: 12px;
+}
+
+.edit-user-section .section-header h4 {
+font-size: 15px;
+font-weight: 600;
+color: var(--text-primary);
+margin-bottom: 4px;
+}
+
+.edit-user-section .section-header p {
+font-size: 12px;
+color: var(--text-tertiary);
+}
+
+.edit-user-modal .form-group {
+display: flex;
+flex-direction: column;
+gap: 8px;
+margin-bottom: 12px;
+}
+
+.edit-user-modal .form-group label {
+font-size: 12px;
+font-weight: 600;
+color: var(--text-secondary);
+}
+
+.edit-user-modal .form-group input,
+.edit-user-modal .form-group select {
+height: 40px;
+padding: 0 12px;
+border-radius: 10px;
+border: 1px solid var(--border-subtle);
+background: var(--bg-tertiary);
+color: var(--text-primary);
+font-size: 13px;
+transition: all var(--transition-duration) var(--transition-smooth);
+}
+
+.edit-user-modal .form-group input:focus,
+.edit-user-modal .form-group select:focus {
+outline: none;
+border-color: var(--primary-accent);
+box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+background: var(--bg-primary);
+}
+
+.role-grid {
+display: flex;
+flex-wrap: wrap;
+gap: 10px;
+}
+
+.role-option {
+display: inline-flex;
+align-items: center;
+gap: 8px;
+padding: 6px 10px;
+border-radius: 10px;
+border: 1px solid var(--border-subtle);
+background: var(--bg-tertiary);
+font-size: 12px;
+color: var(--text-secondary);
+}
+
+.role-option input {
+accent-color: var(--primary-accent);
+}
+
+/* ============================================================================
+FORM ELEMENTS
+============================================================================ */
+
+.form-field {
+margin-bottom: 20px;
+}
+
+.form-field label {
+display: block;
+font-size: 13px;
+font-weight: 600;
+color: var(--text-secondary);
+margin-bottom: 8px;
+letter-spacing: -0.01em;
+}
+
+.form-field input,
+.form-field select,
+.form-field textarea {
+width: 100%;
+padding: 12px 16px;
+border-radius: 10px;
+border: 1px solid var(--border-subtle);
+background: var(--bg-primary);
+font-size: 14px;
+color: var(--text-primary);
+transition: all 0.2s ease;
+font-family: inherit;
+}
+
+.form-field input:focus,
+.form-field select:focus,
+.form-field textarea:focus {
+outline: none;
+border-color: var(--primary-accent);
+box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.form-field input:hover,
+.form-field select:hover,
+.form-field textarea:hover {
+border-color: var(--slate-300);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Update the Admin Overview (System Overview) section to display organizational and user-centric statistics, and remove technical system metrics.
+
+🔄 Required Changes
+1️⃣ Remove Existing Metrics
+
+Completely remove the following cards from the overview:
+
+System Alerts
+
+Uptime
+
+They should be deleted from:
+
+UI components
+
+Any frontend API calls
+
+Backend responses (if applicable)
+
+2️⃣ Add New Overview Metrics (Cards)
+
+Add new metric cards with clean labels and professional wording:
+
+Total System Users
+
+Count of all users in the users table
+
+Includes active + inactive
+
+Total Employees
+
+Count of all employees in the employees table
+
+Total Skills
+
+Count of all skills in the skills master table
+
+Total Locations / Offices
+
+Count of all locations/offices in the locations table
+
+Total Departments
+
+Count of all departments in the departments table
+
+Role Distribution
+
+Show role-wise breakdown, e.g.:
+
+HR: 20
+
+Managers: 5
+
+Admins: 3
+
+Employees: 120
+
+Backend should aggregate user-role mapping
+
+Frontend should render this as:
+
+Text list OR
+
+Compact stacked card OR
+
+Small chart (if already supported)
+
+Backend Requirements (FastAPI)
+
+Create or extend a single admin overview endpoint, for example:
+GET /api/admin/overview
+Response should return a structured JSON like:
+{
+"total_users": 150,
+"total_employees": 130,
+"total_skills": 45,
+"total_locations": 6,
+"total_departments": 10,
+"roles_breakdown": {
+"HR": 20,
+"Manager": 5,
+"Admin": 3,
+"Employee": 122
+}
+}
+Endpoint must:
+
+Be admin-only
+
+Use existing auth dependencies
+
+Be efficient (aggregations, not per-row loops)
+
+Log an audit event: OVERVIEW_VIEW
+
+Endpoint must:
+
+Be admin-only
+
+Use existing auth dependencies
+
+Be efficient (aggregations, not per-row loops)
+
+Log an audit event: OVERVIEW_VIEW
+
+X & Design Rules
+
+Overview should answer:
+“What is the current state of the organization?”
+
+No system-level metrics (uptime, alerts)
+
+Focus on:
+
+People
+
+Structure
+
+Capability (skills)
+
+Keep the layout clean, balanced, and executive-friendly

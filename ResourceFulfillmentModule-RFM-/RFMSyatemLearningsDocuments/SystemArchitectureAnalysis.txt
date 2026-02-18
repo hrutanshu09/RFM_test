@@ -1,0 +1,273 @@
+# RBM Resource Fulfillment Module: Technical System Report
+
+## 1. Executive Summary
+The RBM Resource Fulfillment Module solves end-to-end resource demand, onboarding, and governance in a single system. The business problem addressed is fragmented workflows across HR, Talent Acquisition (TA), and Admin operations, which typically cause duplicated data entry, slow approvals, and inconsistent status tracking. This system centralizes employee onboarding, requisition lifecycle management, and operational reporting into a single, consistent workflow.
+
+Operational inefficiencies addressed include:
+- Multiple systems for employee creation and requisition status updates
+- Inconsistent approvals and status visibility
+- Manual reporting and poor auditability
+
+Strategic value:
+- Standardized processes with reliable audit trails
+- Real-time visibility for HR/TA/Admin stakeholders
+- Clean separation of modules with a shared data model, enabling scale
+
+---
+
+## 2. High-Level System Architecture
+### Client–Server Model
+The system follows a classic client–server architecture. The React (Vite) SPA runs in the browser and communicates with the FastAPI backend through REST endpoints. The backend enforces security and orchestrates business logic while PostgreSQL persists all state.
+
+### SPA Architecture Reasoning
+The SPA model minimizes full page reloads and enables fast, fluid workflows for high-frequency tasks like onboarding and requisition approvals. This is a better fit than traditional multi-page rendering because the system is highly interactive with complex stateful forms and dashboards.
+
+### REST API Structure
+FastAPI exposes JSON endpoints under `/api`. Routers are separated by domain (auth, employees, org, requisitions, etc.), which keeps responsibilities clear and simplifies change management. This structure also makes API documentation (OpenAPI/Swagger) coherent and discoverable.
+
+### Why FastAPI + React Works Well
+- FastAPI provides high-performance async capabilities and type-safe request/response validation.
+- React enables a component-driven UI and state control for complex forms.
+- Both ecosystems are strong for rapid iteration while retaining clarity and testability.
+
+### Data Flow Between Layers
+1. UI components call service or API client functions.
+2. Axios attaches JWT and sends requests to FastAPI.
+3. FastAPI validates, performs business logic, and uses SQLAlchemy to access PostgreSQL.
+4. JSON response flows back to the UI for rendering.
+
+### Environment Configuration
+`VITE_API_BASE_URL` is the frontend’s source of truth for the backend base URL, enabling environment-specific deployments without code changes.
+
+---
+
+## 3. Authentication & Security Architecture
+### JWT Lifecycle
+- **Creation:** On login, FastAPI validates credentials and issues a signed JWT with `sub`, `username`, and `roles`.
+- **Storage:** The SPA stores the token in localStorage under `authToken`.
+- **Validation:** Each request includes the token via Axios; FastAPI decodes and validates it with dependency injection.
+
+### Why JWT Over Sessions
+JWTs are stateless and scale easily across services because no server-side session store is required. This is ideal for distributed environments and reduces session storage complexity.
+
+### Token Payload Structure
+The token includes identity and role claims so authorization can be enforced without additional lookups on each request.
+
+### Axios Interceptor Mechanism
+The client interceptor injects `Authorization: Bearer <token>` into all outgoing requests, providing a clean, centralized mechanism for authenticated requests.
+
+### FastAPI Dependency Injection for Security
+Protected endpoints use dependencies such as `require_any_role` and `require_role` which ensures authentication and RBAC checks run consistently.
+
+### Role Normalization
+Roles are normalized to lowercase in the frontend so checks are consistent (`hr`, `admin`, `manager`). This reduces subtle role mismatch bugs.
+
+### RBAC Enforcement
+RBAC is applied at router/endpoint level, ensuring only authorized roles can access sensitive operations (e.g., HR-only finance, Admin-only org config).
+
+### Security Trade-offs of localStorage
+localStorage is vulnerable to XSS. It’s easy to implement but less secure than HttpOnly cookies.
+
+### Improvements
+Move to HttpOnly cookies with CSRF protection, add refresh tokens, and enforce short-lived access tokens to reduce risk.
+
+---
+
+## 4. Frontend Architecture Design
+### Shell Pattern
+The admin dashboard uses a Shell pattern: static layout (sidebar + header) with dynamic main content. This keeps navigation consistent and improves usability.
+
+### SPA Navigation vs Route-Based
+The system uses state-driven view switching (e.g., `activeView`) for dashboard tabs. This is faster than full route transitions when views are tightly coupled.
+
+### Context Usage
+`AuthContext` manages authentication state, token persistence, and login/logout methods.
+
+### Service Layer Abstraction
+API calls are centralized in service files that wrap the shared Axios client. This keeps components focused on UI rather than networking.
+
+### Component Structure Philosophy
+Modules are broken into reusable parts (e.g., onboarding steps, form cards, selectors). This promotes maintainability and enables reuse across HR and TA workflows.
+
+### Multi-Step Form Architecture
+Onboarding uses a modular step system with a single centralized form state. Each step validates its portion of data, and progression is gated by validation state.
+
+### State Management Strategy
+Local component state is used where scope is narrow. Context is used for cross-cutting concerns like authentication. This avoids unnecessary global state complexity.
+
+---
+
+## 5. Backend Architecture Design
+### Router Structure
+Endpoints are grouped by domain in `api/` modules (auth, employees, org, requisitions, etc.). This reduces cognitive load and improves testability.
+
+### Dependency Injection
+FastAPI’s `Depends` is used for DB sessions and security checks, making cross-cutting concerns reusable and consistent.
+
+### ORM Layer
+SQLAlchemy models define schema, relationships, and constraints. This abstraction keeps SQL out of business logic and supports migrations.
+
+### Response Models & Validation
+Pydantic schemas enforce input and output structure, preventing invalid payloads from propagating into the business layer.
+
+### Database Session Lifecycle
+Sessions are injected per request to ensure safe transaction handling and reliable cleanup.
+
+### Separation of Concerns
+Endpoints handle orchestration; models define data; schemas validate; utilities enforce authentication. This separation keeps the codebase resilient to change.
+
+### Status History Logging Pattern
+Requisition status changes are stored in a dedicated history table to enable auditing, analytics, and compliance tracing.
+
+---
+
+## 6. Detailed Data Flow Walkthroughs
+### A. Login Flow
+1. User enters credentials in the SPA.
+2. Frontend calls `/api/auth/login`.
+3. Backend validates credentials and issues JWT.
+4. Token is stored in localStorage and injected into all requests.
+Failures: invalid credentials, expired token, network errors.
+Why clean: centralized auth logic and stateless token use.
+
+### B. Authenticated API Request Lifecycle
+1. UI triggers a service call.
+2. Axios interceptor attaches JWT.
+3. FastAPI dependency validates token and role.
+4. Endpoint executes and returns JSON.
+Failures: token invalid, role mismatch, DB error.
+Why clean: consistent enforcement at one entry point.
+
+### C. Loading Master Data Flow
+1. Component mounts.
+2. API client calls `/api/departments/`.
+3. Backend verifies role and queries DB.
+4. Results populate UI.
+Failures: authorization denied, DB unavailable.
+Why clean: one directional flow, service abstraction.
+
+### D. HR Onboarding Submission Flow
+1. User completes multi-step form.
+2. Validation gates submission.
+3. `POST /employees/onboard` creates employee, contacts, skills, education, availability, and finance.
+4. `POST /employees/{emp_id}/assignments` creates initial assignment.
+Failures: duplicate IDs, missing work email, constraint violations.
+Why clean: one orchestration endpoint plus separate assignment endpoint.
+
+### E. Requisition Status Change Logging Flow
+1. Status update endpoint runs.
+2. Main requisition status is updated.
+3. A record is inserted into `requisition_status_history`.
+Failures: status too long, DB constraint errors.
+Why clean: auditability without polluting main requisition table.
+
+---
+
+## 7. Database Design & Modeling
+### Core Entities
+- Employees
+- Departments
+- Roles
+- Skills
+- Contacts
+- Education
+- Availability
+- Finance
+- Requisitions
+- Requisition Status History
+
+### Relationships
+- Employee has many contacts, skills, and education entries.
+- Employee has one availability and optional finance.
+- Requisitions are independent but linked to workflows and audit history.
+
+### Foreign Key Strategy
+Foreign keys ensure referential integrity between employees, requisitions, and supporting tables.
+
+### Normalization
+The schema uses normalized tables to avoid duplication. For example, status history is separated to preserve historical transitions and reduce data redundancy in the main requisition table.
+
+### Why Status History Is Separate
+It enables auditing and trend analysis without bloating the primary entity, and ensures that every state transition is preserved.
+
+### Indexing Strategy
+- Index frequently queried identifiers (emp_id, req_id).
+- Index status fields used in filters.
+- Consider composite indexes for requisition lifecycle queries.
+
+---
+
+## 8. UI/UX Structural Decisions
+### Shell Pattern Benefits
+Keeps navigation consistent, reduces perceived load times, and provides a predictable workspace.
+
+### SPA Responsiveness
+Local state updates and preloaded data make the system feel instant without server-rendering delays.
+
+### Conditional Rendering vs Routing
+Conditional rendering is optimal for tightly coupled sub-views, while route-based navigation is better for deep-linking. The system balances both approaches.
+
+### State-Driven Rendering
+UI is driven by state instead of DOM manipulation, ensuring predictable updates and easier debugging.
+
+---
+
+## 9. Scalability Considerations
+- Modular API routers allow horizontal scaling.
+- Pagination and filtering should be added for large datasets.
+- Avoid N+1 queries through eager loading or optimized joins.
+- Cache static master data (departments, roles, skills) to reduce repeated queries.
+
+---
+
+## 10. Security Considerations
+- localStorage is vulnerable to XSS; consider HttpOnly cookies.
+- RBAC prevents privilege escalation when implemented consistently.
+- Finance fields are restricted to HR roles.
+- Audit trails protect integrity and traceability.
+
+---
+
+## 11. Performance Considerations
+- useMemo reduces re-computation in React components.
+- Debouncing prevents excess API calls.
+- Avoid redundant API calls by caching shared lists.
+- Query optimization in SQLAlchemy improves backend latency.
+
+---
+
+## 12. Architectural Trade-offs
+- Local state is simple and fast but can become complex at scale.
+- JWTs scale well but complicate token revocation.
+- SPA state-driven views are fast but less SEO-friendly.
+- Centralized form state improves validation but can increase render cost.
+- Separate history tables add storage overhead but enable audits.
+
+---
+
+## 13. Common Beginner Mistakes in Such Systems
+- Storing long status values in short columns.
+- Generating IDs without collision prevention.
+- Skipping centralized validation.
+- Not handling token expiration.
+- Ignoring transactional consistency.
+
+---
+
+## 14. Future Enhancements
+- React Query for caching and request deduplication.
+- Redis for server-side caching.
+- Microservice separation for large organizations.
+- Real-time notifications with WebSockets.
+- Event-driven status changes.
+- Dedicated audit dashboard.
+
+---
+
+## 15. What I Have Learned (Most Important)
+- Frontend architecture design requires clarity and modularity.
+- Backend layering enforces maintainability and security.
+- Authentication and RBAC are core to enterprise readiness.
+- API abstraction simplifies UI integration.
+- Strong data modeling supports reliable workflows.
+- Full-stack thinking is critical for consistency across layers.
