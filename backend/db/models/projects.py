@@ -1,0 +1,52 @@
+from sqlalchemy import Column, Integer, String, Text, Boolean, Date, Numeric, TIMESTAMP, ForeignKey, CheckConstraint, func
+from db.base import Base
+
+class Project(Base):
+    __tablename__ = "projects"
+    project_id = Column(Integer, primary_key=True, autoincrement=True)
+    project_name = Column(String(200), nullable=False)
+    client_name = Column(String(200))
+    project_status = Column(String(30), nullable=False)
+    description = Column(Text)
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("project_status IN ('Active', 'On Hold', 'Completed', 'Cancelled')", name="chk_project_status"),
+    )
+
+class ProjectManager(Base):
+    __tablename__ = "project_managers"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.project_id", ondelete="CASCADE"), nullable=False)
+    manager_user_id = Column(Integer, ForeignKey("users.user_id", ondelete="RESTRICT"), nullable=False)
+    role = Column(String(50), nullable=False)
+    assigned_from = Column(Date, nullable=False)
+    assigned_to = Column(Date)
+    is_active = Column(Boolean, server_default="true", nullable=False)
+
+class ProjectTimeline(Base):
+    __tablename__ = "project_timelines"
+    timeline_id = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.project_id", ondelete="CASCADE"), nullable=False)
+    start_date = Column(Date, nullable=False)
+    planned_end_date = Column(Date, nullable=False)
+    actual_end_date = Column(Date)
+    version_number = Column(Integer, server_default="1", nullable=False)
+    reason_for_change = Column(Text)
+    is_current = Column(Boolean, server_default="true", nullable=False)
+
+class EmployeeProjectAssignment(Base):
+    __tablename__ = "employee_project_assignments"
+    assignment_id = Column(Integer, primary_key=True, autoincrement=True)
+    emp_id = Column(String(20), ForeignKey("employees.emp_id", ondelete="RESTRICT"), nullable=False)
+    project_id = Column(Integer, ForeignKey("projects.project_id", ondelete="CASCADE"), nullable=False)
+    role = Column(String(100))
+    allocation_pct = Column(Numeric(5, 2), nullable=False)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date)
+    status = Column(String(20), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("allocation_pct >= 0 AND allocation_pct <= 100", name="chk_allocation_pct"),
+        CheckConstraint("status IN ('Planned', 'Active', 'Ended')", name="chk_assignment_status"),
+    )
