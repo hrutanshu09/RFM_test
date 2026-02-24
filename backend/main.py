@@ -110,6 +110,10 @@ from api.uploads import router as uploads_router
 from api.candidates import router as candidates_router
 from api.interviews import router as interviews_router
 
+# ---- Projects & Resource Management ----
+from api import projects
+
+
 
 # ---- Include routers (EACH EXACTLY ONCE) ----
 app.include_router(users_router, prefix="/api")
@@ -146,3 +150,4 @@ app.include_router(uploads_router, prefix="/api")
 app.include_router(candidates_router, prefix="/api")
 app.include_router(interviews_router, prefix="/api")
 
+app.include_router(projects.router)
