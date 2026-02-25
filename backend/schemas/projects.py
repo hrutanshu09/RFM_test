@@ -10,12 +10,17 @@ class ProjectCreate(BaseModel):
     client_name: Optional[str] = Field(None, max_length=200)
     project_status: str = Field(..., max_length=30)
     description: Optional[str] = None
+    planned_start_date: Optional[date] = None
+    planned_end_date: Optional[date] = None
 
 class ProjectUpdate(BaseModel):
     project_name: Optional[str] = Field(None, max_length=200)
     client_name: Optional[str] = Field(None, max_length=200)
     project_status: Optional[str] = Field(None, max_length=30)
     description: Optional[str] = None
+    manager_user_id: Optional[int] = None
+    planned_start_date: Optional[date] = None
+    planned_end_date: Optional[date] = None
 
 class ProjectResponse(BaseModel):
     project_id: int
@@ -24,6 +29,9 @@ class ProjectResponse(BaseModel):
     project_status: str
     description: Optional[str] = None
     created_at: Optional[datetime] = None
+    manager_user_id: Optional[int] = None
+    planned_start_date: Optional[date] = None
+    planned_end_date: Optional[date] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -136,5 +144,30 @@ class EmployeeProjectAssignmentResponse(BaseModel):
     timesheet_required: bool
     client_pm_name: Optional[str] = None
     billing_project_id: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    # Add manager_user_id to ProjectCreate
+class ProjectCreate(BaseModel):
+    project_name: str = Field(..., max_length=200)
+    client_name: Optional[str] = Field(None, max_length=200)
+    project_status: str = Field(..., max_length=30)
+    description: Optional[str] = None
+    manager_user_id: Optional[int] = None  # New field
+    planned_start_date: Optional[date] = None
+    planned_end_date: Optional[date] = None
+
+# Add manager_name to ProjectResponse
+class ProjectResponse(BaseModel):
+    project_id: int
+    project_name: str
+    client_name: Optional[str] = None
+    project_status: str
+    description: Optional[str] = None
+    created_at: Optional[datetime] = None
+    manager_name: Optional[str] = None  # New field
+    manager_user_id: Optional[int] = None
+    planned_start_date: Optional[date] = None
+    planned_end_date: Optional[date] = None
 
     model_config = ConfigDict(from_attributes=True)

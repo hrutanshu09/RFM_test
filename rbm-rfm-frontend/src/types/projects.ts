@@ -9,7 +9,10 @@ export interface Project {
   project_status: 'Active' | 'On Hold' | 'Completed' | 'Cancelled';
   description?: string;
   created_at: string;
-  manager_name?: string; 
+  manager_name?: string;
+  manager_user_id?: number;
+  planned_start_date?: string;
+  planned_end_date?: string;
 }
 
 export interface ProjectTimeline {
@@ -57,7 +60,18 @@ export interface ProjectManagerAssignment {
 // Request Types for Mutations
 export type ProjectCreateRequest = Omit<Project, 'project_id' | 'created_at'> & {
   manager_user_id?: number;
+  planned_start_date?: string;
+  planned_end_date?: string;
 };
 export type ProjectUpdateRequest = Partial<ProjectCreateRequest>;
 export type AssignmentCreateRequest = Omit<EmployeeProjectAssignment, 'assignment_id'>;
+
+import { apiClient } from "./client";
+
+export const createProject = async (
+  payload: ProjectCreateRequest,
+): Promise<Project> => {
+  const res = await apiClient.post<Project>("/projects/", payload);
+  return res.data;
+};
 

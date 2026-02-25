@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+import sqlalchemy as sa
 from typing import List
 import json
-import sqlalchemy as sa
 
 from db.session import get_db
 from db.models.projects import Project, ProjectManager, ProjectTimeline, EmployeeProjectAssignment
@@ -15,8 +15,8 @@ from schemas.projects import (
 )
 from utils.dependencies import get_current_user, get_current_user_roles
 from db.models.auth import User
-
-router = APIRouter(prefix="/projects", tags=["Project Management"])
+from db.models.auth import User as AuthUser # Required for join
+router = APIRouter(prefix="/projects", tags=["projects"])
 
 def log_audit(db: Session, user_id: int, action: str, entity_name: str, entity_id: int, old_val=None, new_val=None):
     """Helper to record actions in the AuditLog table."""
@@ -33,26 +33,124 @@ def log_audit(db: Session, user_id: int, action: str, entity_name: str, entity_i
 # --- 1. Project CRUD ---
 
 @router.post("/", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
-def create_project(project: ProjectCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    db_project = Project(**project.model_dump())
+def create_project(
+    project: ProjectCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Create a project header.  If the caller supplied a manager_user_id
+    we also insert the corresponding project_managers row in the same
+    transaction.
+    """
+    has_start = project.planned_start_date is not None
+    has_end = project.planned_end_date is not None
+    if has_start != has_end:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide both planned_start_date and planned_end_date together",
+        )
+    if has_start and project.planned_end_date < project.planned_start_date:
+        raise HTTPException(
+            status_code=400,
+            detail="planned_end_date cannot be before planned_start_date",
+        )
+
+    # build project model without manager/timeline helper fields
+    proj_data = project.model_dump(
+        exclude={"manager_user_id", "planned_start_date", "planned_end_date"}
+    )
+    db_project = Project(**proj_data)
     db.add(db_project)
+    db.flush()                         # get project_id now
+
+    # create assignment row if manager chosen
+    if project.manager_user_id:
+        db.add(
+            ProjectManager(
+                project_id=db_project.project_id,
+                manager_user_id=project.manager_user_id,
+                role="Primary PM",                   # default role
+                assigned_from=sa.func.current_date(),
+                is_active=True,
+            )
+        )
+
+    if has_start and has_end:
+        db.add(
+            ProjectTimeline(
+                project_id=db_project.project_id,
+                planned_start_date=project.planned_start_date,
+                planned_end_date=project.planned_end_date,
+                version_number=1,
+                is_current=True,
+            )
+        )
+
     db.commit()
     db.refresh(db_project)
-    
-    log_audit(db, current_user.user_id, "CREATE", "Project", db_project.project_id, new_val=project.model_dump())
-    db.commit()
     return db_project
 
 @router.get("/", response_model=List[ProjectResponse])
 def list_projects(db: Session = Depends(get_db)):
-    return db.query(Project).all()
+    # Join with active manager, and current timeline metadata
+    results = db.query(
+        Project,
+        AuthUser.username.label("manager_name"),
+        ProjectManager.manager_user_id.label("manager_user_id"),
+        ProjectTimeline.planned_start_date.label("planned_start_date"),
+        ProjectTimeline.planned_end_date.label("planned_end_date"),
+    ).outerjoin(
+        ProjectManager, 
+        (Project.project_id == ProjectManager.project_id) & (ProjectManager.is_active == True)
+    ).outerjoin(
+        ProjectTimeline,
+        (Project.project_id == ProjectTimeline.project_id) & (ProjectTimeline.is_current == True)
+    ).outerjoin(
+        AuthUser, ProjectManager.manager_user_id == AuthUser.user_id
+    ).all()
+    
+    projects_list = []
+    for p, manager_name, manager_user_id, planned_start_date, planned_end_date in results:
+        project_dict = {c.name: getattr(p, c.name) for c in p.__table__.columns}
+        project_dict["manager_name"] = manager_name
+        project_dict["manager_user_id"] = manager_user_id
+        project_dict["planned_start_date"] = planned_start_date
+        project_dict["planned_end_date"] = planned_end_date
+        projects_list.append(project_dict)
+        
+    return projects_list
 
 @router.get("/{project_id}", response_model=ProjectResponse)
 def get_project(project_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    project = db.query(Project).filter(Project.project_id == project_id).first()
-    if not project:
+    result = db.query(
+        Project,
+        AuthUser.username.label("manager_name"),
+        ProjectManager.manager_user_id.label("manager_user_id"),
+        ProjectTimeline.planned_start_date.label("planned_start_date"),
+        ProjectTimeline.planned_end_date.label("planned_end_date"),
+    ).outerjoin(
+        ProjectManager,
+        (Project.project_id == ProjectManager.project_id) & (ProjectManager.is_active == True)
+    ).outerjoin(
+        ProjectTimeline,
+        (Project.project_id == ProjectTimeline.project_id) & (ProjectTimeline.is_current == True)
+    ).outerjoin(
+        AuthUser, ProjectManager.manager_user_id == AuthUser.user_id
+    ).filter(
+        Project.project_id == project_id
+    ).first()
+
+    if not result:
         raise HTTPException(status_code=404, detail="Project not found")
-    return project
+
+    project, manager_name, manager_user_id, planned_start_date, planned_end_date = result
+    project_dict = {c.name: getattr(project, c.name) for c in project.__table__.columns}
+    project_dict["manager_name"] = manager_name
+    project_dict["manager_user_id"] = manager_user_id
+    project_dict["planned_start_date"] = planned_start_date
+    project_dict["planned_end_date"] = planned_end_date
+    return project_dict
 
 @router.patch("/{project_id}", response_model=ProjectResponse)
 def update_project(project_id: int, project_update: ProjectUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -60,23 +158,81 @@ def update_project(project_id: int, project_update: ProjectUpdate, db: Session =
     if not db_project:
         raise HTTPException(status_code=404, detail="Project not found")
     
+    raw_update = project_update.model_dump(exclude_unset=True)
+    update_data = dict(raw_update)
+
+    has_manager_update = "manager_user_id" in raw_update
+    manager_user_id = update_data.pop("manager_user_id", None)
+    has_planned_start = "planned_start_date" in raw_update
+    has_planned_end = "planned_end_date" in raw_update
+    planned_start_date = update_data.pop("planned_start_date", None)
+    planned_end_date = update_data.pop("planned_end_date", None)
+
+    if has_planned_start != has_planned_end:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide both planned_start_date and planned_end_date together",
+        )
+    if has_planned_start and ((planned_start_date is None) or (planned_end_date is None)):
+        raise HTTPException(
+            status_code=400,
+            detail="planned_start_date and planned_end_date cannot be null",
+        )
+    if has_planned_start and planned_end_date < planned_start_date:
+        raise HTTPException(
+            status_code=400,
+            detail="planned_end_date cannot be before planned_start_date",
+        )
+
     old_data = {c.name: getattr(db_project, c.name) for c in db_project.__table__.columns}
-    update_data = project_update.model_dump(exclude_unset=True)
-    
     for key, value in update_data.items():
         setattr(db_project, key, value)
+
+    if has_manager_update:
+        db.query(ProjectManager).filter(
+            ProjectManager.project_id == project_id,
+            ProjectManager.is_active == True,
+        ).update({"is_active": False})
+        if manager_user_id:
+            db.add(
+                ProjectManager(
+                    project_id=project_id,
+                    manager_user_id=manager_user_id,
+                    role="Primary PM",
+                    assigned_from=sa.func.current_date(),
+                    is_active=True,
+                )
+            )
+
+    if has_planned_start and has_planned_end:
+        current_timeline = db.query(ProjectTimeline).filter(
+            ProjectTimeline.project_id == project_id,
+            ProjectTimeline.is_current == True,
+        ).first()
+        if current_timeline:
+            current_timeline.planned_start_date = planned_start_date
+            current_timeline.planned_end_date = planned_end_date
+        else:
+            db.add(
+                ProjectTimeline(
+                    project_id=project_id,
+                    planned_start_date=planned_start_date,
+                    planned_end_date=planned_end_date,
+                    version_number=1,
+                    is_current=True,
+                )
+            )
     
     log_audit(db, current_user.user_id, "UPDATE", "Project", project_id, old_val=old_data, new_val=update_data)
     db.commit()
-    db.refresh(db_project)
-    return db_project
+    return get_project(project_id, db, current_user)
 
 # --- 2. Project Manager Assignments (REINSTATED) ---
 
 @router.post("/managers", response_model=ProjectManagerResponse)
 def add_project_manager(
-    manager: ProjectManagerCreate, 
-    db: Session = Depends(get_db), 
+    manager: ProjectManagerCreate,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Assigns an internal manager to a project."""
@@ -157,50 +313,41 @@ def list_project_assignments(
             
     return assignments
 
-from db.models.auth import User as AuthUser # Required for join
+@router.patch("/assignments/{assignment_id}", response_model=EmployeeProjectAssignmentResponse)
+def update_project_assignment(
+    assignment_id: int,
+    assignment_update: EmployeeProjectAssignmentUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    roles: List[str] = Depends(get_current_user_roles),
+):
+    db_assignment = db.query(EmployeeProjectAssignment).filter(
+        EmployeeProjectAssignment.assignment_id == assignment_id
+    ).first()
+    if not db_assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
 
-@router.post("/", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
-def create_project(project: ProjectCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    # 1. Create project, excluding manager_user_id from the main projects table
-    project_data = project.model_dump(exclude={"manager_user_id"})
-    db_project = Project(**project_data)
-    db.add(db_project)
+    update_data = assignment_update.model_dump(exclude_unset=True)
+    is_admin = any(r.lower() == "admin" for r in roles)
+    if not is_admin and "billing_rate" in update_data:
+        update_data["billing_rate"] = None
+
+    old_data = {c.name: getattr(db_assignment, c.name) for c in db_assignment.__table__.columns}
+    for key, value in update_data.items():
+        setattr(db_assignment, key, value)
+
+    log_audit(
+        db,
+        current_user.user_id,
+        "UPDATE",
+        "EmployeeProjectAssignment",
+        assignment_id,
+        old_val=old_data,
+        new_val=update_data,
+    )
     db.commit()
-    db.refresh(db_project)
-    
-    # 2. If a manager was selected, create the entry in project_managers
-    if project.manager_user_id:
-        db_mgr = ProjectManager(
-            project_id=db_project.project_id,
-            manager_user_id=project.manager_user_id,
-            role="Primary PM",
-            assigned_from=sa.func.current_date(),
-            is_active=True
-        )
-        db.add(db_mgr)
-        db.commit()
+    db.refresh(db_assignment)
 
-    log_audit(db, current_user.user_id, "CREATE", "Project", db_project.project_id, new_val=project.model_dump())
-    db.commit()
-    return db_project
-
-@router.get("/", response_model=List[ProjectResponse])
-def list_projects(db: Session = Depends(get_db)):
-    # Join with ProjectManager and User to get the manager's username
-    results = db.query(
-        Project,
-        AuthUser.username.label("manager_name")
-    ).outerjoin(
-        ProjectManager, 
-        (Project.project_id == ProjectManager.project_id) & (ProjectManager.is_active == True)
-    ).outerjoin(
-        AuthUser, ProjectManager.manager_user_id == AuthUser.user_id
-    ).all()
-    
-    projects_list = []
-    for p, manager_name in results:
-        project_dict = {c.name: getattr(p, c.name) for c in p.__table__.columns}
-        project_dict["manager_name"] = manager_name
-        projects_list.append(project_dict)
-        
-    return projects_list
+    if not is_admin:
+        db_assignment.billing_rate = None
+    return db_assignment

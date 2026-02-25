@@ -1,117 +1,247 @@
-import React, { useState, useEffect } from 'react';
-import { projectService } from '../../api/projectService';
-import { fetchUsers, AdminUser } from '../../api/users'; // Ensure this path is correct
-import { ProjectCreateRequest } from '../../types/projects';
+import React, { useEffect, useState } from "react";
+import { fetchUsers, type AdminUser } from "../../api/users";
+import { projectService } from "../../api/projectService";
+import { Project, ProjectCreateRequest } from "../../types/projects";
 
 interface ProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  project?: Project | null;
 }
 
-type ProjectStatus = 'Active' | 'On Hold' | 'Completed' | 'Cancelled';
+type ProjectStatus = "Active" | "On Hold" | "Completed" | "Cancelled";
 
-const ProjectModal: React.FC<ProjectModalProps> = ({ isOpen, onClose, onSuccess }) => {
+const ProjectModal: React.FC<ProjectModalProps> = ({
+  isOpen,
+  onClose,
+  onSuccess,
+  project,
+}) => {
   const [managers, setManagers] = useState<AdminUser[]>([]);
   const [formData, setFormData] = useState({
-    project_name: '',
-    client_name: '',
-    project_status: 'Active' as ProjectStatus,
-    description: '',
-    manager_user_id: '' // State to track selected manager ID
+    project_name: "",
+    client_name: "",
+    project_status: "Active" as string,
+    description: "",
+    manager_user_id: "",
+    planned_start_date: "",
+    planned_end_date: "",
   });
 
-  // Fetch system users when the modal opens to populate the dropdown
   useEffect(() => {
-    if (isOpen) {
-      fetchUsers()
-        .then(data => setManagers(data))
-        .catch(err => console.error("Failed to load users for manager selection", err));
-    }
+    if (!isOpen) return;
+
+    fetchUsers()
+      .then((data) => setManagers(data))
+      .catch((err) =>
+        console.error("Failed to load users for manager dropdown", err),
+      );
   }, [isOpen]);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (project) {
+      setFormData({
+        project_name: project.project_name || "",
+        client_name: project.client_name || "",
+        project_status: (project.project_status || "Active") as string,
+        description: project.description || "",
+        manager_user_id: project.manager_user_id ? String(project.manager_user_id) : "",
+        planned_start_date: project.planned_start_date || "",
+        planned_end_date: project.planned_end_date || "",
+      });
+      return;
+    }
+
+    setFormData({
+      project_name: "",
+      client_name: "",
+      project_status: "Active",
+      description: "",
+      manager_user_id: "",
+      planned_start_date: "",
+      planned_end_date: "",
+    });
+  }, [isOpen, project]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [isOpen, onClose]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      // Prepare payload: convert manager_user_id string to number
-      const payload: ProjectCreateRequest = {
-        project_name: formData.project_name,
-        client_name: formData.client_name,
-        project_status: formData.project_status,
-        description: formData.description,
-        manager_user_id: formData.manager_user_id ? Number(formData.manager_user_id) : undefined
-      };
+    const hasStart = Boolean(formData.planned_start_date);
+    const hasEnd = Boolean(formData.planned_end_date);
+    if (hasStart !== hasEnd) {
+      alert("Please provide both planned start and planned end dates.");
+      return;
+    }
 
-      await projectService.createProject(payload);
+    const payload: ProjectCreateRequest = {
+      project_name: formData.project_name,
+      client_name: formData.client_name || undefined,
+      project_status: formData.project_status,
+      description: formData.description || undefined,
+      manager_user_id: formData.manager_user_id
+        ? Number(formData.manager_user_id)
+        : undefined,
+      planned_start_date: formData.planned_start_date || undefined,
+      planned_end_date: formData.planned_end_date || undefined,
+    };
+
+    try {
+      if (project?.project_id) {
+        await projectService.updateProject(project.project_id, payload);
+      } else {
+        await projectService.createProject(payload);
+      }
       onSuccess();
-    } catch (error) {
-      console.error("Creation failed", error);
-      alert("Failed to create project.");
+    } catch (err) {
+      console.error("Project save failed", err);
+      alert("Unable to save project");
     }
   };
 
+  if (!isOpen) {
+    return null;
+  }
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-lg w-96 shadow-xl">
-        <h3 className="text-xl font-bold mb-4">Create New Project</h3>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <input 
-            className="w-full p-2 border rounded"
-            placeholder="Project Name" required
-            value={formData.project_name}
-            onChange={e => setFormData({...formData, project_name: e.target.value})}
-          />
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="create-project-title"
+    >
+      <form
+        onSubmit={handleSubmit}
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-2xl max-h-[90vh] overflow-y-auto space-y-4 rounded-lg bg-white p-6 shadow-xl"
+      >
+        <h3 id="create-project-title" className="text-xl font-bold">
+          {project ? "Edit Project" : "Create New Project"}
+        </h3>
 
-          {/* Manager Selection Dropdown */}
-          <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">Primary Project Manager</label>
-            <select 
-              className="w-full p-2 border rounded"
-              value={formData.manager_user_id}
-              onChange={e => setFormData({...formData, manager_user_id: e.target.value})}
-            >
-              <option value="">Select a Manager (Optional)</option>
-              {managers.map(user => (
-                <option key={user.user_id} value={user.user_id}>
-                  {user.username} {user.employee?.name ? `(${user.employee.name})` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
+        <input
+          className="w-full p-2 border rounded"
+          placeholder="Project Name"
+          value={formData.project_name}
+          onChange={(e) =>
+            setFormData({ ...formData, project_name: e.target.value })
+          }
+          required
+        />
 
-          <input 
-            className="w-full p-2 border rounded"
-            placeholder="Client Name"
-            value={formData.client_name}
-            onChange={e => setFormData({...formData, client_name: e.target.value})}
-          />
-          
-          <select 
-            className="w-full p-2 border rounded"
-            value={formData.project_status}
-            onChange={e => setFormData({...formData, project_status: e.target.value as ProjectStatus})}
+        <div className="form-group">
+          <label>Project Manager</label>
+          <select
+            value={formData.manager_user_id}
+            onChange={(e) =>
+              setFormData({ ...formData, manager_user_id: e.target.value })
+            }
+            className="w-full px-3 py-2 border rounded"
           >
-            <option value="Active">Active</option>
-            <option value="On Hold">On Hold</option>
-            <option value="Completed">Completed</option>
-            <option value="Cancelled">Cancelled</option>
+            <option value="">-- none --</option>
+            {managers.map((user) => (
+              <option key={user.user_id} value={user.user_id}>
+                {user.employee?.name || user.username}
+              </option>
+            ))}
           </select>
+        </div>
 
-          <textarea 
-            className="w-full p-2 border rounded"
-            placeholder="Description"
-            value={formData.description}
-            onChange={e => setFormData({...formData, description: e.target.value})}
-          />
+        <input
+          className="w-full p-2 border rounded"
+          placeholder="Client Name"
+          value={formData.client_name}
+          onChange={(e) =>
+            setFormData({ ...formData, client_name: e.target.value })
+          }
+        />
 
-          <div className="flex justify-end gap-2 pt-4">
-            <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">Cancel</button>
-            <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Create Project</button>
+        <select
+          className="w-full p-2 border rounded"
+          value={formData.project_status}
+          onChange={(e) =>
+            setFormData({
+              ...formData,
+              project_status: e.target.value as ProjectStatus,
+            })
+          }
+        >
+          <option value="Active">Active</option>
+          <option value="On Hold">On Hold</option>
+          <option value="Completed">Completed</option>
+          <option value="Cancelled">Cancelled</option>
+        </select>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">
+              Planned Start Date
+            </label>
+            <input
+              type="date"
+              className="w-full p-2 border rounded"
+              value={formData.planned_start_date}
+              onChange={(e) =>
+                setFormData({ ...formData, planned_start_date: e.target.value })
+              }
+            />
           </div>
-        </form>
-      </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">
+              Planned End Date
+            </label>
+            <input
+              type="date"
+              className="w-full p-2 border rounded"
+              value={formData.planned_end_date}
+              min={formData.planned_start_date || undefined}
+              onChange={(e) =>
+                setFormData({ ...formData, planned_end_date: e.target.value })
+              }
+            />
+          </div>
+        </div>
+
+        <textarea
+          className="w-full p-2 border rounded"
+          placeholder="Description"
+          value={formData.description}
+          onChange={(e) =>
+            setFormData({ ...formData, description: e.target.value })
+          }
+        />
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            {project ? "Save Changes" : "Create Project"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 };
