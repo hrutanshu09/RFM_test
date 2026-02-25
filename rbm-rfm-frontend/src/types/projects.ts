@@ -9,6 +9,7 @@ export interface Project {
   project_status: 'Active' | 'On Hold' | 'Completed' | 'Cancelled';
   description?: string;
   created_at: string;
+  manager_name?: string; 
 }
 
 export interface ProjectTimeline {
@@ -54,6 +55,9 @@ export interface ProjectManagerAssignment {
 }
 
 // Request Types for Mutations
-export type ProjectCreateRequest = Omit<Project, 'project_id' | 'created_at'>;
+export type ProjectCreateRequest = Omit<Project, 'project_id' | 'created_at'> & {
+  manager_user_id?: number;
+};
 export type ProjectUpdateRequest = Partial<ProjectCreateRequest>;
 export type AssignmentCreateRequest = Omit<EmployeeProjectAssignment, 'assignment_id'>;
+

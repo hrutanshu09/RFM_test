@@ -1,0 +1,119 @@
+/* Container Layout */
+.project-detail-container {
+  padding: 2rem;
+  background-color: #f9fafb;
+  min-height: 100vh;
+}
+
+/* Header Styles */
+.detail-header {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.detail-header h1 {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: #111827;
+  margin: 0;
+}
+
+.btn-back {
+  padding: 0.5rem 1rem;
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btn-back:hover {
+  background-color: #f3f4f6;
+}
+
+/* Grid and Cards */
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(1, 1fr);
+  gap: 1.5rem;
+}
+
+@media (min-width: 1024px) {
+  .detail-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.detail-card {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+}
+
+.full-width {
+  grid-column: 1 / -1;
+}
+
+.detail-card h3 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  font-size: 1.125rem;
+  color: #374151;
+  border-bottom: 1px solid #f3f4f6;
+  padding-bottom: 0.5rem;
+}
+
+/* Table Styles */
+.assignment-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+
+.assignment-table th {
+  text-align: left;
+  padding: 0.75rem;
+  background-color: #f8fafc;
+  color: #64748b;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+}
+
+.assignment-table td {
+  padding: 1rem 0.75rem;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1e293b;
+}
+
+/* Status and Info Pills */
+.status-pill {
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-pill.active { background: #dcfce7; color: #15803d; }
+.status-pill.on-hold { background: #fef3c7; color: #92400e; }
+
+.meta-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.info-item {
+  font-size: 0.875rem;
+}
+
+.empty-row {
+  text-align: center;
+  color: #94a3b8;
+  padding: 2rem !important;
+}
