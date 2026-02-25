@@ -56,14 +56,17 @@ class ProjectManagerResponse(BaseModel):
 # --- Project Timeline Schemas ---
 class ProjectTimelineCreate(BaseModel):
     project_id: int
-    start_date: date
+    planned_start_date: Optional[date] = None  # Add this
+    actual_start_date: Optional[date] = None 
+    #start_date: date
     planned_end_date: date
     actual_end_date: Optional[date] = None
     reason_for_change: Optional[str] = None
     is_current: Optional[bool] = True
 
 class ProjectTimelineUpdate(BaseModel):
-    start_date: Optional[date] = None
+    planned_start_date: Optional[date] = None  # Add this
+    actual_start_date: Optional[date] = None 
     planned_end_date: Optional[date] = None
     actual_end_date: Optional[date] = None
     reason_for_change: Optional[str] = None
@@ -72,7 +75,9 @@ class ProjectTimelineUpdate(BaseModel):
 class ProjectTimelineResponse(BaseModel):
     timeline_id: int
     project_id: int
-    start_date: date
+    planned_start_date: Optional[date] = None  # Add this
+    actual_start_date: Optional[date] = None
+    #start_date: date
     planned_end_date: date
     actual_end_date: Optional[date] = None
     version_number: int
@@ -91,12 +96,28 @@ class EmployeeProjectAssignmentCreate(BaseModel):
     end_date: Optional[date] = None
     status: str = Field(..., max_length=20)
 
+    billing_rate: Optional[Decimal] = Field(None, max_digits=10, decimal_places=2)
+    billing_start_date: Optional[date] = None
+    billing_end_date: Optional[date] = None
+    is_billable: bool = True
+    timesheet_required: bool = True
+    client_pm_name: Optional[str] = Field(None, max_length=200)
+    billing_project_id: Optional[int] = None
+
 class EmployeeProjectAssignmentUpdate(BaseModel):
     role: Optional[str] = Field(None, max_length=100)
     allocation_pct: Optional[Decimal] = Field(None, max_digits=5, decimal_places=2)
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     status: Optional[str] = Field(None, max_length=20)
+
+    billing_rate: Optional[Decimal] = None
+    billing_start_date: Optional[date] = None
+    billing_end_date: Optional[date] = None
+    is_billable: Optional[bool] = None
+    timesheet_required: Optional[bool] = None
+    client_pm_name: Optional[str] = None
+    billing_project_id: Optional[int] = None
 
 class EmployeeProjectAssignmentResponse(BaseModel):
     assignment_id: int
@@ -107,5 +128,13 @@ class EmployeeProjectAssignmentResponse(BaseModel):
     start_date: date
     end_date: Optional[date] = None
     status: str
+
+    billing_rate: Optional[Decimal] = None
+    billing_start_date: Optional[date] = None
+    billing_end_date: Optional[date] = None
+    is_billable: bool
+    timesheet_required: bool
+    client_pm_name: Optional[str] = None
+    billing_project_id: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)

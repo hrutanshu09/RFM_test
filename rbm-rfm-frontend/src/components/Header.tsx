@@ -1,7 +1,6 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/useAuth";
-import RbmLogo from "../assets/rbm-logo.svg";
 import "../styles/Header.css";
 
 const Header: React.FC = () => {
@@ -27,9 +26,6 @@ const Header: React.FC = () => {
       <div className="header-container">
         <div className="header-left">
           <div className="logo-container">
-            <div className="logo-icon" aria-hidden="true">
-              <img src={RbmLogo} alt="RBM" />
-            </div>
             <div className="logo-text">
               <h1 className="header-title">RBM Software</h1>
               <span className="header-subtitle">

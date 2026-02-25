@@ -23,6 +23,8 @@ import ManagerDashboard from "../components/manager/ManagerDashboard";
 import ManagerRequisitionDetails from "../components/manager/ManagerRequisitionDetails";
 import OwnerDashboard from "../components/owner/OwnerDashboard";
 import { useAuth } from "../contexts/useAuth";
+import ProjectDashboard from '../components/project/ProjectDashboard'; // You'll create this main view
+import ProjectDetail from '../components/project/ProjectDetail';
 
 const Dashboard = () => (
   <div style={{ padding: "40px 20px" }}>
@@ -104,6 +106,8 @@ export const AppRouter = () => {
           <Route path="master-data" element={<MasterDataManager />} />
           <Route path="audit-logs" element={<AuditLogViewer />} />
           <Route path="users" element={<UserManager />} />
+          <Route path="projects" element={<ProjectDashboard />} />
+          <Route path="projects/:id" element={<ProjectDetail />} />
         </Route>
         <Route
           path="/owner"
@@ -190,6 +194,7 @@ export const AppRouter = () => {
             />
           }
         />
+        
       </Routes>
     </BrowserRouter>
   );

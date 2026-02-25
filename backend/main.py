@@ -149,5 +149,7 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(uploads_router, prefix="/api")
 app.include_router(candidates_router, prefix="/api")
 app.include_router(interviews_router, prefix="/api")
+app.include_router(projects.router, prefix="/api") 
+
 
 app.include_router(projects.router)
