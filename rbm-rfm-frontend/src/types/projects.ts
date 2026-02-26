@@ -65,7 +65,11 @@ export type ProjectCreateRequest = Omit<Project, 'project_id' | 'created_at'> & 
   planned_start_date?: string;
   planned_end_date?: string;
 };
-export type ProjectUpdateRequest = Partial<ProjectCreateRequest>;
+export type ProjectUpdateRequest = Partial<ProjectCreateRequest> & {
+  actual_start_date?: string;
+  actual_end_date?: string;
+  reason_for_change?: string;
+};
 export type AssignmentCreateRequest = Omit<EmployeeProjectAssignment, 'assignment_id'>;
 
 import { apiClient } from "./client";

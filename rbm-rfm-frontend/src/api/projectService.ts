@@ -29,6 +29,8 @@ export const projectService = {
   // Timelines
   createTimeline: (data: Partial<ProjectTimeline>) => 
     apiClient.post<ProjectTimeline>("/projects/timelines", data),
+  getProjectTimelines: (projectId: number) =>
+    apiClient.get<ProjectTimeline[]>(`/projects/${projectId}/timelines`),
 
   // Assignments (Billing details are handled here)
   assignEmployee: (data: AssignmentCreateRequest) => 

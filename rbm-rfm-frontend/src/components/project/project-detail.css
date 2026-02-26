@@ -145,6 +145,18 @@
   font-size: 0.875rem;
 }
 
+.date-pair-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+@media (max-width: 768px) {
+  .date-pair-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .actual-dates-editor {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -163,6 +175,10 @@
   font-size: 0.78rem;
   font-weight: 600;
   color: #334155;
+}
+
+.actual-date-field-full {
+  grid-column: 1 / -1;
 }
 
 .actual-date-field input {
@@ -187,6 +203,22 @@
 .save-actual-date-btn:disabled {
   opacity: 0.7;
   cursor: not-allowed;
+}
+
+.timeline-history-list {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.timeline-history-item {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 0.7rem;
+  background: #f8fafc;
+  font-size: 0.85rem;
+  color: #334155;
+  display: grid;
+  gap: 0.2rem;
 }
 
 .empty-row {
@@ -458,6 +490,37 @@
 .assignment-page-meta {
   font-size: 12px;
   color: var(--text-tertiary);
+}
+
+.status-inline-select {
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  padding: 0.25rem 0.45rem;
+  font-size: 0.75rem;
+  background: #fff;
+  color: #334155;
+}
+
+.assignment-bulk-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
+}
+
+.save-status-changes-btn {
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  color: #fff;
+  border-radius: 0.375rem;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.save-status-changes-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .muted {

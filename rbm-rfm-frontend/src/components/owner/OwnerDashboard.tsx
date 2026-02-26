@@ -10,6 +10,8 @@ import ResourceUtilization from "./ResourceUtilization";
 import RequisitionOverview from "./RequisitionOverview";
 import TAHrPerformance from "./TAHrPerformance";
 import AuditApprovals from "./AuditApprovals";
+import ProjectDashboard from "../project/ProjectDashboard";
+import ProjectDetail from "../project/ProjectDetail";
 
 const viewLabels: Record<string, string> = {
   "executive-dashboard": "Executive Dashboard",
@@ -17,6 +19,7 @@ const viewLabels: Record<string, string> = {
   "requisition-overview": "Requisition Overview",
   "ta-hr-performance": "TA & HR Performance",
   "audit-approvals": "Audit & Approvals",
+  "project-management": "Project Management",
 };
 
 const OwnerDashboard: React.FC = () => {
@@ -38,6 +41,9 @@ const OwnerDashboard: React.FC = () => {
     }
     if (location.pathname.startsWith("/owner/audit-approvals")) {
       return viewLabels["audit-approvals"];
+    }
+    if (location.pathname.startsWith("/owner/projects")) {
+      return viewLabels["project-management"];
     }
     return viewLabels["executive-dashboard"];
   }, [location.pathname]);
@@ -73,6 +79,10 @@ const OwnerDashboard: React.FC = () => {
             <TAHrPerformance />
           ) : location.pathname === "/owner/audit-approvals" ? (
             <AuditApprovals />
+          ) : location.pathname === "/owner/projects" ? (
+            <ProjectDashboard />
+          ) : location.pathname.startsWith("/owner/projects/") ? (
+            <ProjectDetail />
           ) : (
             <Outlet />
           )}

@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { projectService } from '../../api/projectService';
 import { fetchEmployees, type EmployeeOption } from '../../api/employees';
-import { Project, EmployeeProjectAssignment, AssignmentCreateRequest } from '../../types/projects';
+import { Project, EmployeeProjectAssignment, AssignmentCreateRequest, ProjectTimeline } from '../../types/projects';
 import { useAuth } from '../../contexts/useAuth';
 import './project-detail.css';
 
@@ -10,24 +10,52 @@ const ProjectDetail: React.FC = () => {
   const RESOURCES_PER_PAGE = 12;
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
-  const isAdmin = user?.roles?.includes('admin');
+  const normalizedRoles = (user?.roles || []).map((role) => role.toLowerCase());
+  const roleBasePath = normalizedRoles.includes('owner')
+    ? '/owner'
+    : normalizedRoles.includes('admin')
+      ? '/admin'
+      : normalizedRoles.includes('hr')
+        ? '/hr'
+        : normalizedRoles.includes('ta')
+          ? '/ta'
+          : normalizedRoles.includes('manager')
+            ? '/manager'
+            : '/dashboard';
+  const isFullAccess = normalizedRoles.includes('admin') || normalizedRoles.includes('owner');
+  const canWriteAssignments =
+    normalizedRoles.includes('admin') ||
+    normalizedRoles.includes('owner') ||
+    normalizedRoles.includes('hr') ||
+    normalizedRoles.includes('ta') ||
+    normalizedRoles.includes('manager') ||
+    normalizedRoles.includes('pm');
+  const canEditAssignmentStatus = isFullAccess;
+  const canUpdateTimeline = isFullAccess;
 
   const [project, setProject] = useState<Project | null>(null);
   const [assignments, setAssignments] = useState<EmployeeProjectAssignment[]>([]);
+  const [timelines, setTimelines] = useState<ProjectTimeline[]>([]);
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSavingAssignment, setIsSavingAssignment] = useState(false);
-  const [savingActualDateField, setSavingActualDateField] = useState<null | 'start' | 'end'>(null);
+  const [isSavingStatusChanges, setIsSavingStatusChanges] = useState(false);
+  const [isSavingTimeline, setIsSavingTimeline] = useState(false);
   const [isAssignFormOpen, setIsAssignFormOpen] = useState(false);
   const [currentAssignmentsPage, setCurrentAssignmentsPage] = useState(1);
   const [employeeSearchInput, setEmployeeSearchInput] = useState('');
   const [isEmployeeDropdownOpen, setIsEmployeeDropdownOpen] = useState(false);
   const employeeDropdownRef = useRef<HTMLDivElement | null>(null);
-  const [actualDatesForm, setActualDatesForm] = useState({
+  const [timelineForm, setTimelineForm] = useState({
+    planned_start_date: '',
+    planned_end_date: '',
     actual_start_date: '',
     actual_end_date: '',
+    reason_for_change: '',
   });
+  const [statusDrafts, setStatusDrafts] = useState<Record<number, 'Planned' | 'Active'>>({});
   const [assignmentForm, setAssignmentForm] = useState({
     emp_id: '',
     role: '',
@@ -35,13 +63,15 @@ const ProjectDetail: React.FC = () => {
     start_date: '',
     end_date: '',
     status: 'Active' as 'Planned' | 'Active' | 'Ended',
-    is_billable: true,
+    is_billable: isFullAccess,
     billing_rate: '',
     billing_start_date: '',
     billing_end_date: '',
   });
 
-  const projectId = Number(id);
+  const pathnameProjectId = location.pathname.split('/').filter(Boolean).pop();
+  const resolvedProjectId = id ?? pathnameProjectId ?? '';
+  const projectId = Number(resolvedProjectId);
 
   const resetAssignmentForm = () => {
     setAssignmentForm({
@@ -51,7 +81,7 @@ const ProjectDetail: React.FC = () => {
       start_date: '',
       end_date: '',
       status: 'Active',
-      is_billable: true,
+      is_billable: isFullAccess,
       billing_rate: '',
       billing_start_date: '',
       billing_end_date: '',
@@ -84,17 +114,23 @@ const ProjectDetail: React.FC = () => {
   }, []);
 
   const fetchProjectData = async () => {
-    const [projectRes, assignmentsRes, employeesRes] = await Promise.all([
+    const [projectRes, assignmentsRes, employeesRes, timelinesRes] = await Promise.all([
       projectService.getProject(projectId),
       projectService.getProjectAssignments(projectId),
       fetchEmployees(),
+      projectService.getProjectTimelines(projectId),
     ]);
     setProject(projectRes.data);
-    setActualDatesForm({
+    setTimelineForm({
+      planned_start_date: projectRes.data.planned_start_date || '',
+      planned_end_date: projectRes.data.planned_end_date || '',
       actual_start_date: projectRes.data.actual_start_date || '',
       actual_end_date: projectRes.data.actual_end_date || '',
+      reason_for_change: '',
     });
     setAssignments(assignmentsRes.data);
+    setStatusDrafts({});
+    setTimelines(timelinesRes.data);
     setCurrentAssignmentsPage(1);
     setEmployees(employeesRes);
   };
@@ -122,7 +158,7 @@ const ProjectDetail: React.FC = () => {
       return;
     }
 
-    if (assignmentForm.is_billable && !assignmentForm.billing_rate) {
+    if (isFullAccess && assignmentForm.is_billable && !assignmentForm.billing_rate) {
       alert('Please provide billing rate for billable assignments.');
       return;
     }
@@ -177,47 +213,113 @@ const ProjectDetail: React.FC = () => {
     }
   };
 
-  const handleSaveActualDate = async (field: 'start' | 'end') => {
-    if (field === 'start') {
-      if (
-        actualDatesForm.actual_start_date &&
-        actualDatesForm.actual_end_date &&
-        actualDatesForm.actual_start_date > actualDatesForm.actual_end_date
-      ) {
-        alert('Actual start date cannot be after actual end date.');
+  const handleSaveTimeline = async () => {
+    if (isFullAccess) {
+      if (!timelineForm.planned_start_date || !timelineForm.planned_end_date) {
+        alert('Please provide planned start and planned end dates.');
         return;
       }
-    } else if (
-      actualDatesForm.actual_start_date &&
-      actualDatesForm.actual_end_date &&
-      actualDatesForm.actual_end_date < actualDatesForm.actual_start_date
+
+      if (timelineForm.planned_start_date > timelineForm.planned_end_date) {
+        alert('Planned end date cannot be before planned start date.');
+        return;
+      }
+    }
+
+    if (
+      timelineForm.actual_start_date &&
+      timelineForm.actual_end_date &&
+      timelineForm.actual_end_date < timelineForm.actual_start_date
     ) {
       alert('Actual end date cannot be before actual start date.');
       return;
     }
 
-    setSavingActualDateField(field);
+    if (isFullAccess) {
+      const plannedChanged =
+        (project?.planned_start_date || '') !== timelineForm.planned_start_date ||
+        (project?.planned_end_date || '') !== timelineForm.planned_end_date;
+      if (plannedChanged && !timelineForm.reason_for_change.trim()) {
+        alert('Reason for change is required when planned dates are updated.');
+        return;
+      }
+    }
+
+    setIsSavingTimeline(true);
     try {
-      const payload =
-        field === 'start'
-          ? { actual_start_date: actualDatesForm.actual_start_date || undefined }
-          : { actual_end_date: actualDatesForm.actual_end_date || undefined };
+      const payload = isFullAccess
+        ? {
+            planned_start_date: timelineForm.planned_start_date,
+            planned_end_date: timelineForm.planned_end_date,
+            actual_start_date: timelineForm.actual_start_date || undefined,
+            actual_end_date: timelineForm.actual_end_date || undefined,
+            reason_for_change: timelineForm.reason_for_change.trim() || undefined,
+          }
+        : {
+            actual_start_date: timelineForm.actual_start_date || undefined,
+            actual_end_date: timelineForm.actual_end_date || undefined,
+          };
 
       const updated = await projectService.updateProject(projectId, payload);
+      const timelineHistory = await projectService.getProjectTimelines(projectId);
       setProject(updated.data);
-      setActualDatesForm({
+      setTimelines(timelineHistory.data);
+      setTimelineForm({
+        planned_start_date: updated.data.planned_start_date || '',
+        planned_end_date: updated.data.planned_end_date || '',
         actual_start_date: updated.data.actual_start_date || '',
         actual_end_date: updated.data.actual_end_date || '',
+        reason_for_change: '',
       });
     } catch (err) {
-      console.error('Failed to update actual dates:', err);
-      alert(`Unable to update actual ${field} date`);
+      console.error('Failed to update timeline:', err);
+      alert('Unable to update timeline');
     } finally {
-      setSavingActualDateField(null);
+      setIsSavingTimeline(false);
+    }
+  };
+
+  const hasStatusChanges = assignments.some((asgn) => {
+    if (asgn.status === 'Ended') return false;
+    const draft = statusDrafts[asgn.assignment_id];
+    return Boolean(draft && draft !== asgn.status);
+  });
+
+  const handleSaveStatusChanges = async () => {
+    const changedAssignments = assignments.filter((asgn) => {
+      if (asgn.status === 'Ended') return false;
+      const draft = statusDrafts[asgn.assignment_id];
+      return Boolean(draft && draft !== asgn.status);
+    });
+
+    if (!changedAssignments.length) {
+      return;
+    }
+
+    setIsSavingStatusChanges(true);
+    try {
+      await Promise.all(
+        changedAssignments.map((asgn) =>
+          projectService.updateAssignment(asgn.assignment_id, {
+            status: statusDrafts[asgn.assignment_id] as 'Planned' | 'Active',
+          }),
+        ),
+      );
+
+      const refreshed = await projectService.getProjectAssignments(projectId);
+      setAssignments(refreshed.data);
+      setStatusDrafts({});
+      setCurrentAssignmentsPage(1);
+    } catch (err) {
+      console.error('Failed to save status changes:', err);
+      alert('Unable to save status changes');
+    } finally {
+      setIsSavingStatusChanges(false);
     }
   };
 
   if (loading) return <div className="loading-state">Loading Project Details...</div>;
+  if (Number.isNaN(projectId)) return <div className="error-state">Invalid project route.</div>;
   if (!project) return <div className="error-state">Project not found.</div>;
 
   const assignmentTotalPages = Math.ceil(assignments.length / RESOURCES_PER_PAGE);
@@ -231,7 +333,7 @@ const ProjectDetail: React.FC = () => {
   return (
     <div className="project-detail-container">
       <div className="detail-header">
-        <button onClick={() => navigate('/admin/projects')} className="btn-back">Back to Portfolio</button>
+        <button onClick={() => navigate(`${roleBasePath}/projects`)} className="btn-back">Back to Portfolio</button>
         <h1>{project.project_name}</h1>
         <span className={`status-pill ${project.project_status.toLowerCase()}`}>
           {project.project_status}
@@ -245,61 +347,123 @@ const ProjectDetail: React.FC = () => {
           <div className="meta-info">
             <div className="info-item"><strong>Client:</strong> {project.client_name || 'Internal'}</div>
             <div className="info-item"><strong>Manager:</strong> {project.manager_name || 'Not Assigned'}</div>
-            <div className="info-item"><strong>Planned Start Date:</strong> {project.planned_start_date ? new Date(project.planned_start_date).toLocaleDateString() : 'Not Set'}</div>
-            <div className="info-item"><strong>Planned End Date:</strong> {project.planned_end_date ? new Date(project.planned_end_date).toLocaleDateString() : 'Not Set'}</div>
-            <div className="actual-dates-editor">
-              <div className="actual-date-field">
-                <label>Actual Start Date</label>
-                <input
-                  type="date"
-                  value={actualDatesForm.actual_start_date}
-                  onChange={(e) =>
-                    setActualDatesForm((prev) => ({ ...prev, actual_start_date: e.target.value }))
-                  }
-                />
-                <button
-                  type="button"
-                  className="save-actual-date-btn"
-                  onClick={() => handleSaveActualDate('start')}
-                  disabled={savingActualDateField === 'start'}
-                >
-                  {savingActualDateField === 'start' ? 'Saving...' : 'Save Start Date'}
-                </button>
-              </div>
-              <div className="actual-date-field">
-                <label>Actual End Date</label>
-                <input
-                  type="date"
-                  value={actualDatesForm.actual_end_date}
-                  min={actualDatesForm.actual_start_date || undefined}
-                  onChange={(e) =>
-                    setActualDatesForm((prev) => ({ ...prev, actual_end_date: e.target.value }))
-                  }
-                />
-                <button
-                  type="button"
-                  className="save-actual-date-btn"
-                  onClick={() => handleSaveActualDate('end')}
-                  disabled={savingActualDateField === 'end'}
-                >
-                  {savingActualDateField === 'end' ? 'Saving...' : 'Save End Date'}
-                </button>
-              </div>
+            <div className="date-pair-row">
+              <div className="info-item"><strong>Planned Start Date:</strong> {project.planned_start_date ? new Date(project.planned_start_date).toLocaleDateString() : 'Not Set'}</div>
+              <div className="info-item"><strong>Actual Start Date:</strong> {project.actual_start_date ? new Date(project.actual_start_date).toLocaleDateString() : 'Not Set'}</div>
             </div>
+            <div className="date-pair-row">
+              <div className="info-item"><strong>Planned End Date:</strong> {project.planned_end_date ? new Date(project.planned_end_date).toLocaleDateString() : 'Not Set'}</div>
+              <div className="info-item"><strong>Actual End Date:</strong> {project.actual_end_date ? new Date(project.actual_end_date).toLocaleDateString() : 'Not Set'}</div>
+            </div>
+            {canUpdateTimeline && (
+              <div className="actual-dates-editor">
+                {isFullAccess && (
+                  <>
+                    <div className="actual-date-field">
+                      <label>Planned Start Date</label>
+                      <input
+                        type="date"
+                        value={timelineForm.planned_start_date}
+                        onChange={(e) =>
+                          setTimelineForm((prev) => ({ ...prev, planned_start_date: e.target.value }))
+                        }
+                      />
+                    </div>
+                    <div className="actual-date-field">
+                      <label>Planned End Date</label>
+                      <input
+                        type="date"
+                        value={timelineForm.planned_end_date}
+                        min={timelineForm.planned_start_date || undefined}
+                        onChange={(e) =>
+                          setTimelineForm((prev) => ({ ...prev, planned_end_date: e.target.value }))
+                        }
+                      />
+                    </div>
+                  </>
+                )}
+                <div className="actual-date-field">
+                  <label>Actual Start Date</label>
+                  <input
+                    type="date"
+                    value={timelineForm.actual_start_date}
+                    onChange={(e) =>
+                      setTimelineForm((prev) => ({ ...prev, actual_start_date: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="actual-date-field">
+                  <label>Actual End Date</label>
+                  <input
+                    type="date"
+                    value={timelineForm.actual_end_date}
+                    min={timelineForm.actual_start_date || undefined}
+                    onChange={(e) =>
+                      setTimelineForm((prev) => ({ ...prev, actual_end_date: e.target.value }))
+                    }
+                  />
+                </div>
+                {isFullAccess && (
+                  <div className="actual-date-field actual-date-field-full">
+                    <label>Reason For Change</label>
+                    <input
+                      type="text"
+                      value={timelineForm.reason_for_change}
+                      placeholder="Required when changing planned dates"
+                      onChange={(e) =>
+                        setTimelineForm((prev) => ({ ...prev, reason_for_change: e.target.value }))
+                      }
+                    />
+                  </div>
+                )}
+                <div className="actual-date-field actual-date-field-full">
+                  <button
+                    type="button"
+                    className="save-actual-date-btn"
+                    onClick={handleSaveTimeline}
+                    disabled={isSavingTimeline}
+                  >
+                    {isSavingTimeline ? 'Saving...' : 'Save Timeline'}
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="info-item"><strong>Created:</strong> {new Date(project.created_at).toLocaleDateString()}</div>
+          </div>
+        </section>
+
+        <section className="detail-card full-width">
+          <div className="section-header">
+            <h3>Timeline Version History</h3>
+          </div>
+          <div className="timeline-history-list">
+            {timelines.length === 0 ? (
+              <div className="empty-row">No timeline history yet.</div>
+            ) : (
+              timelines.map((timeline) => (
+                <div key={timeline.timeline_id} className="timeline-history-item">
+                  <div><strong>Version:</strong> V{timeline.version_number} {timeline.is_current ? '(Current)' : ''}</div>
+                  <div><strong>Planned:</strong> {timeline.planned_start_date || '-'} to {timeline.planned_end_date || '-'}</div>
+                  <div><strong>Actual:</strong> {timeline.actual_start_date || '-'} to {timeline.actual_end_date || '-'}</div>
+                  <div><strong>Reason:</strong> {timeline.reason_for_change || '-'}</div>
+                </div>
+              ))
+            )}
           </div>
         </section>
 
         <section className="detail-card full-width">
           <div className="section-header assign-toolbar">
             <h3>Resource Assignment</h3>
-            <button
-              type="button"
-              className="assign-toggle-btn"
-              onClick={() => setIsAssignFormOpen((prev) => !prev)}
-            >
-              {isAssignFormOpen ? 'Close Form' : 'Assign Resource'}
-            </button>
+            {canWriteAssignments && (
+              <button
+                type="button"
+                className="assign-toggle-btn"
+                onClick={() => setIsAssignFormOpen((prev) => !prev)}
+              >
+                {isAssignFormOpen ? 'Close Form' : 'Assign Resource'}
+              </button>
+            )}
           </div>
         </section>
 
@@ -317,10 +481,14 @@ const ProjectDetail: React.FC = () => {
                   <th>Start Date</th>
                   <th>End Date</th>
                   <th>Active Status</th>
-                  <th>Billable Status</th>
-                  <th>Billing Rate</th>
-                  <th>Billing Start</th>
-                  <th>Billing End</th>
+                  {isFullAccess && (
+                    <>
+                      <th>Billable Status</th>
+                      <th>Billing Rate</th>
+                      <th>Billing Start</th>
+                      <th>Billing End</th>
+                    </>
+                  )}
                   <th>Status</th>
                   <th>Action</th>
                 </tr>
@@ -338,19 +506,39 @@ const ProjectDetail: React.FC = () => {
                         {asgn.status === 'Active' ? 'Active' : 'Inactive'}
                       </span>
                     </td>
-                    <td>{asgn.is_billable ? 'Yes' : 'No'}</td>
+                    {isFullAccess && (
+                      <>
+                        <td>{asgn.is_billable ? 'Yes' : 'No'}</td>
+                        <td>
+                          {asgn.billing_rate != null
+                            ? `$${asgn.billing_rate}`
+                            : '-'}
+                        </td>
+                        <td>{asgn.billing_start_date ? new Date(asgn.billing_start_date).toLocaleDateString() : '-'}</td>
+                        <td>{asgn.billing_end_date ? new Date(asgn.billing_end_date).toLocaleDateString() : '-'}</td>
+                      </>
+                    )}
                     <td>
-                      {asgn.billing_rate != null
-                        ? `$${asgn.billing_rate}`
-                        : isAdmin
-                          ? '-'
-                          : 'Restricted'}
+                      {canEditAssignmentStatus && asgn.status !== 'Ended' ? (
+                        <select
+                          className="status-inline-select"
+                          value={statusDrafts[asgn.assignment_id] ?? (asgn.status as 'Planned' | 'Active')}
+                          onChange={(e) =>
+                            setStatusDrafts((prev) => ({
+                              ...prev,
+                              [asgn.assignment_id]: e.target.value as 'Planned' | 'Active',
+                            }))
+                          }
+                        >
+                          <option value="Planned">Planned</option>
+                          <option value="Active">Active</option>
+                        </select>
+                      ) : (
+                        asgn.status
+                      )}
                     </td>
-                    <td>{asgn.billing_start_date ? new Date(asgn.billing_start_date).toLocaleDateString() : '-'}</td>
-                    <td>{asgn.billing_end_date ? new Date(asgn.billing_end_date).toLocaleDateString() : '-'}</td>
-                    <td>{asgn.status}</td>
                     <td>
-                      {asgn.status !== 'Ended' ? (
+                      {canEditAssignmentStatus && asgn.status !== 'Ended' ? (
                         <button
                           className="btn-inline"
                           onClick={() => handleUnassign(asgn.assignment_id)}
@@ -366,12 +554,24 @@ const ProjectDetail: React.FC = () => {
                 ))}
                 {assignments.length === 0 && (
                   <tr>
-                    <td colSpan={12} className="empty-row">No resources assigned yet.</td>
+                    <td colSpan={isFullAccess ? 12 : 8} className="empty-row">No resources assigned yet.</td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
+          {canEditAssignmentStatus && (
+            <div className="assignment-bulk-actions">
+              <button
+                type="button"
+                className="save-status-changes-btn"
+                onClick={handleSaveStatusChanges}
+                disabled={!hasStatusChanges || isSavingStatusChanges}
+              >
+                {isSavingStatusChanges ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          )}
           {assignmentTotalPages > 1 && (
             <div className="assignment-pagination">
               <button
@@ -402,7 +602,7 @@ const ProjectDetail: React.FC = () => {
         </section>
       </div>
 
-      {isAssignFormOpen && (
+      {isAssignFormOpen && canWriteAssignments && (
         <div
           className="assignment-modal-overlay"
           onClick={() => setIsAssignFormOpen(false)}
@@ -525,58 +725,62 @@ const ProjectDetail: React.FC = () => {
                 </select>
               </div>
 
-              <div className="field-with-help">
-                <label>Billable Status</label>
-                <select
-                  value={assignmentForm.is_billable ? 'Yes' : 'No'}
-                  onChange={(e) => {
-                    const isBillable = e.target.value === 'Yes';
-                    setAssignmentForm({
-                      ...assignmentForm,
-                      is_billable: isBillable,
-                      billing_rate: isBillable ? assignmentForm.billing_rate : '',
-                      billing_start_date: isBillable ? assignmentForm.billing_start_date : '',
-                      billing_end_date: isBillable ? assignmentForm.billing_end_date : '',
-                    });
-                  }}
-                >
-                  <option value="Yes">Yes</option>
-                  <option value="No">No</option>
-                </select>
-              </div>
+              {isFullAccess && (
+                <>
+                  <div className="field-with-help">
+                    <label>Billable Status</label>
+                    <select
+                      value={assignmentForm.is_billable ? 'Yes' : 'No'}
+                      onChange={(e) => {
+                        const isBillable = e.target.value === 'Yes';
+                        setAssignmentForm({
+                          ...assignmentForm,
+                          is_billable: isBillable,
+                          billing_rate: isBillable ? assignmentForm.billing_rate : '',
+                          billing_start_date: isBillable ? assignmentForm.billing_start_date : '',
+                          billing_end_date: isBillable ? assignmentForm.billing_end_date : '',
+                        });
+                      }}
+                    >
+                      <option value="Yes">Yes</option>
+                      <option value="No">No</option>
+                    </select>
+                  </div>
 
-              <div className="field-with-help">
-                <label>Billing Rate</label>
-                <input
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  value={assignmentForm.billing_rate}
-                  onChange={(e) => setAssignmentForm({ ...assignmentForm, billing_rate: e.target.value })}
-                  disabled={!assignmentForm.is_billable}
-                />
-              </div>
+                  <div className="field-with-help">
+                    <label>Billing Rate</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={assignmentForm.billing_rate}
+                      onChange={(e) => setAssignmentForm({ ...assignmentForm, billing_rate: e.target.value })}
+                      disabled={!assignmentForm.is_billable}
+                    />
+                  </div>
 
-              <div className="field-with-help">
-                <label>Billing Start Date</label>
-                <input
-                  type="date"
-                  value={assignmentForm.billing_start_date}
-                  onChange={(e) => setAssignmentForm({ ...assignmentForm, billing_start_date: e.target.value })}
-                  disabled={!assignmentForm.is_billable}
-                />
-              </div>
+                  <div className="field-with-help">
+                    <label>Billing Start Date</label>
+                    <input
+                      type="date"
+                      value={assignmentForm.billing_start_date}
+                      onChange={(e) => setAssignmentForm({ ...assignmentForm, billing_start_date: e.target.value })}
+                      disabled={!assignmentForm.is_billable}
+                    />
+                  </div>
 
-              <div className="field-with-help">
-                <label>Billing End Date</label>
-                <input
-                  type="date"
-                  value={assignmentForm.billing_end_date}
-                  min={assignmentForm.billing_start_date || undefined}
-                  onChange={(e) => setAssignmentForm({ ...assignmentForm, billing_end_date: e.target.value })}
-                  disabled={!assignmentForm.is_billable}
-                />
-              </div>
+                  <div className="field-with-help">
+                    <label>Billing End Date</label>
+                    <input
+                      type="date"
+                      value={assignmentForm.billing_end_date}
+                      min={assignmentForm.billing_start_date || undefined}
+                      onChange={(e) => setAssignmentForm({ ...assignmentForm, billing_end_date: e.target.value })}
+                      disabled={!assignmentForm.is_billable}
+                    />
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="assignment-form-actions">

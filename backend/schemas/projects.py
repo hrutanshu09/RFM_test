@@ -1,8 +1,9 @@
-# backend/schemas/projects.py
 from datetime import date, datetime
-from typing import Optional
 from decimal import Decimal
-from pydantic import BaseModel, Field, ConfigDict
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, Field
+
 
 # --- Project Schemas ---
 class ProjectCreate(BaseModel):
@@ -10,8 +11,12 @@ class ProjectCreate(BaseModel):
     client_name: Optional[str] = Field(None, max_length=200)
     project_status: str = Field(..., max_length=30)
     description: Optional[str] = None
+    manager_user_id: Optional[int] = None
     planned_start_date: Optional[date] = None
     planned_end_date: Optional[date] = None
+    actual_start_date: Optional[date] = None
+    actual_end_date: Optional[date] = None
+
 
 class ProjectUpdate(BaseModel):
     project_name: Optional[str] = Field(None, max_length=200)
@@ -23,6 +28,8 @@ class ProjectUpdate(BaseModel):
     planned_end_date: Optional[date] = None
     actual_start_date: Optional[date] = None
     actual_end_date: Optional[date] = None
+    reason_for_change: Optional[str] = None
+
 
 class ProjectResponse(BaseModel):
     project_id: int
@@ -31,9 +38,12 @@ class ProjectResponse(BaseModel):
     project_status: str
     description: Optional[str] = None
     created_at: Optional[datetime] = None
+    manager_name: Optional[str] = None
     manager_user_id: Optional[int] = None
     planned_start_date: Optional[date] = None
     planned_end_date: Optional[date] = None
+    actual_start_date: Optional[date] = None
+    actual_end_date: Optional[date] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -66,28 +76,28 @@ class ProjectManagerResponse(BaseModel):
 # --- Project Timeline Schemas ---
 class ProjectTimelineCreate(BaseModel):
     project_id: int
-    planned_start_date: Optional[date] = None  # Add this
-    actual_start_date: Optional[date] = None 
-    #start_date: date
+    planned_start_date: Optional[date] = None
+    actual_start_date: Optional[date] = None
     planned_end_date: date
     actual_end_date: Optional[date] = None
     reason_for_change: Optional[str] = None
     is_current: Optional[bool] = True
 
+
 class ProjectTimelineUpdate(BaseModel):
-    planned_start_date: Optional[date] = None  # Add this
-    actual_start_date: Optional[date] = None 
+    planned_start_date: Optional[date] = None
+    actual_start_date: Optional[date] = None
     planned_end_date: Optional[date] = None
     actual_end_date: Optional[date] = None
     reason_for_change: Optional[str] = None
     is_current: Optional[bool] = None
 
+
 class ProjectTimelineResponse(BaseModel):
     timeline_id: int
     project_id: int
-    planned_start_date: Optional[date] = None  # Add this
+    planned_start_date: Optional[date] = None
     actual_start_date: Optional[date] = None
-    #start_date: date
     planned_end_date: date
     actual_end_date: Optional[date] = None
     version_number: int
@@ -146,34 +156,5 @@ class EmployeeProjectAssignmentResponse(BaseModel):
     timesheet_required: bool
     client_pm_name: Optional[str] = None
     billing_project_id: Optional[int] = None
-
-    model_config = ConfigDict(from_attributes=True)
-
-    # Add manager_user_id to ProjectCreate
-class ProjectCreate(BaseModel):
-    project_name: str = Field(..., max_length=200)
-    client_name: Optional[str] = Field(None, max_length=200)
-    project_status: str = Field(..., max_length=30)
-    description: Optional[str] = None
-    manager_user_id: Optional[int] = None  # New field
-    planned_start_date: Optional[date] = None
-    planned_end_date: Optional[date] = None
-    actual_start_date: Optional[date] = None
-    actual_end_date: Optional[date] = None
-
-# Add manager_name to ProjectResponse
-class ProjectResponse(BaseModel):
-    project_id: int
-    project_name: str
-    client_name: Optional[str] = None
-    project_status: str
-    description: Optional[str] = None
-    created_at: Optional[datetime] = None
-    manager_name: Optional[str] = None  # New field
-    manager_user_id: Optional[int] = None
-    planned_start_date: Optional[date] = None
-    planned_end_date: Optional[date] = None
-    actual_start_date: Optional[date] = None
-    actual_end_date: Optional[date] = None
 
     model_config = ConfigDict(from_attributes=True)

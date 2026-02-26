@@ -6,6 +6,7 @@ import {
   FileText,
   Users,
   ShieldCheck,
+  Briefcase,
   Menu,
   X,
 } from "lucide-react";
@@ -48,6 +49,11 @@ const OwnerSidebar: React.FC<OwnerSidebarProps> = ({
       to: "/owner/audit-approvals",
       label: "Audit & Approvals",
       icon: <ShieldCheck size={20} />,
+    },
+    {
+      to: "/owner/projects",
+      label: "Project Management",
+      icon: <Briefcase size={20} />,
     },
   ];
 

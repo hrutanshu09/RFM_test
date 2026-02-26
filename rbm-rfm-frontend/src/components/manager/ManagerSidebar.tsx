@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   ClipboardList,
   FilePlus,
+  Briefcase,
   Menu,
   X,
 } from "lucide-react";
@@ -36,6 +37,11 @@ const ManagerSidebar: React.FC<ManagerSidebarProps> = ({
       to: "/manager/my-requisitions",
       label: "My Requisitions",
       icon: <ClipboardList size={20} />,
+    },
+    {
+      to: "/manager/projects",
+      label: "Project Management",
+      icon: <Briefcase size={20} />,
     },
   ];
 

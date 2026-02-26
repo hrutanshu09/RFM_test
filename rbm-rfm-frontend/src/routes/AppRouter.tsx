@@ -95,6 +95,26 @@ export const AppRouter = () => {
           }
         />
         <Route
+          path="/dashboard/projects"
+          element={
+            <ProtectedRoute>
+              <ProtectedLayout>
+                <ProjectDashboard />
+              </ProtectedLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dashboard/projects/:id"
+          element={
+            <ProtectedRoute>
+              <ProtectedLayout>
+                <ProjectDetail />
+              </ProtectedLayout>
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/admin"
           element={
             <ProtectedRoute requiredRoles={["admin", "owner"]}>
@@ -125,6 +145,8 @@ export const AppRouter = () => {
             </ProtectedRoute>
           }
         >
+          <Route path="projects" element={<ProjectDashboard />} />
+          <Route path="projects/:id" element={<ProjectDetail />} />
           <Route path="employees" element={<EmployeeList />} />
           <Route path="create-employee" element={<CreateEmployee />} />
           <Route path="employee-profile" element={<EmployeeProfile />} />
@@ -140,6 +162,8 @@ export const AppRouter = () => {
             </ProtectedRoute>
           }
         >
+          <Route path="projects" element={<ProjectDashboard />} />
+          <Route path="projects/:id" element={<ProjectDetail />} />
           <Route path="requisitions" element={<Requisitions />} />
           <Route path="requisitions/:id" element={<RequisitionDetail />} />
           <Route path="my-requisitions" element={<MyRequisitions />} />
@@ -194,6 +218,7 @@ export const AppRouter = () => {
             />
           }
         />
+        <Route path="*" element={<Navigate to="/" replace />} />
         
       </Routes>
     </BrowserRouter>

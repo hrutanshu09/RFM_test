@@ -10,6 +10,8 @@ import { getStatusLabel } from "../../types/workflow";
 import RequisitionWizard from "./RequisitionWizard";
 import MyRequisitions from "./MyRequisitions";
 import RequisitionAudit from "./RequisitionAudit";
+import ProjectDashboard from "../project/ProjectDashboard";
+import ProjectDetail from "../project/ProjectDetail";
 import { AlertTriangle, Clock, TrendingUp } from "lucide-react";
 import { managerDashboardService } from "../../api/managerDashboardService";
 import { ManagerDashboardMetrics } from "../../types/managerDashboard";
@@ -295,6 +297,10 @@ const ManagerDashboard: React.FC = () => {
             <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-6 px-4 md:px-6">
               <MyRequisitions />
             </div>
+          ) : location.pathname === "/manager/projects" ? (
+            <ProjectDashboard />
+          ) : location.pathname.startsWith("/manager/projects/") ? (
+            <ProjectDetail />
           ) : location.pathname === "/manager/requisition-audit" ? (
             <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-6 px-4 md:px-6">
               <RequisitionAudit />

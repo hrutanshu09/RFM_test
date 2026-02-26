@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink } from "react-router-dom";
-import { Shield, Database, Users, FileText, Menu, X } from "lucide-react";
+import { Shield, Database, Users, FileText, Briefcase, Menu, X } from "lucide-react";
 
 interface AdminSidebarProps {
   collapsed: boolean;
@@ -20,6 +20,7 @@ const AdminSidebar: React.FC<AdminSidebarProps> = ({
     { to: "/admin/master-data", label: "Master Data", icon: <Database size={20} /> },
     { to: "/admin/audit-logs", label: "Audit Logs", icon: <FileText size={20} /> },
     { to: "/admin/users", label: "User Management", icon: <Users size={20} /> },
+    { to: "/admin/projects", label: "Project Management", icon: <Briefcase size={20} /> },
   ];
 
   return (

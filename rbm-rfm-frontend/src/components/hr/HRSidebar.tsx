@@ -6,6 +6,7 @@ import {
   UserCircle,
   Award,
   FileText,
+  Briefcase,
   Menu,
   X,
 } from "lucide-react";
@@ -39,6 +40,7 @@ const HrSidebar: React.FC<HrSidebarProps> = ({
       label: "Employee Profile",
       icon: <UserCircle size={20} />,
     },
+    { to: "/hr/projects", label: "Project Management", icon: <Briefcase size={20} /> },
     { to: "/hr/requisitions", label: "Requisition", icon: <FileText size={20} /> },
     { to: "/hr/skills", label: "Skills", icon: <Award size={20} /> },
   ];
