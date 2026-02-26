@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import axios from "axios";
 import { fetchUsers, type AdminUser } from "../../api/users";
 import { projectService } from "../../api/projectService";
 import { Project, ProjectCreateRequest } from "../../types/projects";
@@ -19,15 +20,25 @@ const ProjectModal: React.FC<ProjectModalProps> = ({
   project,
 }) => {
   const [managers, setManagers] = useState<AdminUser[]>([]);
-  const [formData, setFormData] = useState({
-    project_name: "",
-    client_name: "",
-    project_status: "Active" as string,
-    description: "",
-    manager_user_id: "",
-    planned_start_date: "",
-    planned_end_date: "",
+  const buildInitialForm = (source?: Project | null) => ({
+    project_name: source?.project_name || "",
+    client_name: source?.client_name || "",
+    project_status: (source?.project_status || "Active") as ProjectStatus,
+    description: source?.description || "",
+    manager_user_id: source?.manager_user_id ? String(source.manager_user_id) : "",
+    planned_start_date: source?.planned_start_date || "",
+    planned_end_date: source?.planned_end_date || "",
   });
+
+  const [formData, setFormData] = useState<{
+    project_name: string;
+    client_name: string;
+    project_status: ProjectStatus;
+    description: string;
+    manager_user_id: string;
+    planned_start_date: string;
+    planned_end_date: string;
+  }>(() => buildInitialForm(project));
 
   useEffect(() => {
     if (!isOpen) return;
@@ -39,32 +50,6 @@ const ProjectModal: React.FC<ProjectModalProps> = ({
       );
   }, [isOpen]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-
-    if (project) {
-      setFormData({
-        project_name: project.project_name || "",
-        client_name: project.client_name || "",
-        project_status: (project.project_status || "Active") as string,
-        description: project.description || "",
-        manager_user_id: project.manager_user_id ? String(project.manager_user_id) : "",
-        planned_start_date: project.planned_start_date || "",
-        planned_end_date: project.planned_end_date || "",
-      });
-      return;
-    }
-
-    setFormData({
-      project_name: "",
-      client_name: "",
-      project_status: "Active",
-      description: "",
-      manager_user_id: "",
-      planned_start_date: "",
-      planned_end_date: "",
-    });
-  }, [isOpen, project]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -87,7 +72,6 @@ const ProjectModal: React.FC<ProjectModalProps> = ({
       alert("Please provide both planned start and planned end dates.");
       return;
     }
-
     const payload: ProjectCreateRequest = {
       project_name: formData.project_name,
       client_name: formData.client_name || undefined,
@@ -109,7 +93,18 @@ const ProjectModal: React.FC<ProjectModalProps> = ({
       onSuccess();
     } catch (err) {
       console.error("Project save failed", err);
-      alert("Unable to save project");
+      if (axios.isAxiosError(err)) {
+        const detail = err.response?.data?.detail;
+        const message =
+          typeof detail === "string"
+            ? detail
+            : Array.isArray(detail)
+              ? detail.map((d: { msg?: string }) => d?.msg).filter(Boolean).join(", ")
+              : err.message;
+        alert(`Unable to save project: ${message}`);
+      } else {
+        alert("Unable to save project");
+      }
     }
   };
 
@@ -119,7 +114,7 @@ const ProjectModal: React.FC<ProjectModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed left-0 right-0 bottom-0 top-16 z-50 flex items-start justify-center bg-black/50 p-4 pt-4 pb-4"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
@@ -128,21 +123,26 @@ const ProjectModal: React.FC<ProjectModalProps> = ({
       <form
         onSubmit={handleSubmit}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-2xl max-h-[90vh] overflow-y-auto space-y-4 rounded-lg bg-white p-6 shadow-xl"
+        className="w-full max-w-xl space-y-3 rounded-lg bg-white p-5 shadow-xl"
       >
         <h3 id="create-project-title" className="text-xl font-bold">
           {project ? "Edit Project" : "Create New Project"}
         </h3>
 
-        <input
-          className="w-full p-2 border rounded"
-          placeholder="Project Name"
-          value={formData.project_name}
-          onChange={(e) =>
-            setFormData({ ...formData, project_name: e.target.value })
-          }
-          required
-        />
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">
+            Project Name
+          </label>
+          <input
+            className="w-full p-2 border rounded"
+            placeholder="Project Name"
+            value={formData.project_name}
+            onChange={(e) =>
+              setFormData({ ...formData, project_name: e.target.value })
+            }
+            required
+          />
+        </div>
 
         <div className="form-group">
           <label>Project Manager</label>
@@ -162,30 +162,40 @@ const ProjectModal: React.FC<ProjectModalProps> = ({
           </select>
         </div>
 
-        <input
-          className="w-full p-2 border rounded"
-          placeholder="Client Name"
-          value={formData.client_name}
-          onChange={(e) =>
-            setFormData({ ...formData, client_name: e.target.value })
-          }
-        />
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">
+            Client Name
+          </label>
+          <input
+            className="w-full p-2 border rounded"
+            placeholder="Client Name"
+            value={formData.client_name}
+            onChange={(e) =>
+              setFormData({ ...formData, client_name: e.target.value })
+            }
+          />
+        </div>
 
-        <select
-          className="w-full p-2 border rounded"
-          value={formData.project_status}
-          onChange={(e) =>
-            setFormData({
-              ...formData,
-              project_status: e.target.value as ProjectStatus,
-            })
-          }
-        >
-          <option value="Active">Active</option>
-          <option value="On Hold">On Hold</option>
-          <option value="Completed">Completed</option>
-          <option value="Cancelled">Cancelled</option>
-        </select>
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">
+            Project Status
+          </label>
+          <select
+            className="w-full p-2 border rounded"
+            value={formData.project_status}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                project_status: e.target.value as ProjectStatus,
+              })
+            }
+          >
+            <option value="Active">Active</option>
+            <option value="On Hold">On Hold</option>
+            <option value="Completed">Completed</option>
+            <option value="Cancelled">Cancelled</option>
+          </select>
+        </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div>
@@ -217,14 +227,19 @@ const ProjectModal: React.FC<ProjectModalProps> = ({
           </div>
         </div>
 
-        <textarea
-          className="w-full p-2 border rounded"
-          placeholder="Description"
-          value={formData.description}
-          onChange={(e) =>
-            setFormData({ ...formData, description: e.target.value })
-          }
-        />
+        <div>
+          <label className="mb-1 block text-sm font-medium text-gray-700">
+            Description
+          </label>
+          <textarea
+            className="w-full p-2 border rounded"
+            placeholder="Description"
+            value={formData.description}
+            onChange={(e) =>
+              setFormData({ ...formData, description: e.target.value })
+            }
+          />
+        </div>
 
         <div className="flex justify-end gap-2 pt-2">
           <button

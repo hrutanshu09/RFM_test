@@ -1,7 +1,9 @@
 from dotenv import load_dotenv
 import os
+from pathlib import Path
 
-load_dotenv()
+ENV_PATH = Path(__file__).resolve().parent / ".env"
+load_dotenv(ENV_PATH)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,7 +45,18 @@ def _db_exception_handler(request, exc):
 
 from sqlalchemy.exc import OperationalError, DBAPIError
 app.add_exception_handler(OperationalError, _db_exception_handler)
-app.add_exception_handler(DBAPIError, _db_exception_handler)
+
+
+def _db_query_exception_handler(request, exc):
+    """Return explicit DB error instead of masking it as connectivity issue."""
+    detail = str(getattr(exc, "orig", exc))
+    return JSONResponse(
+        status_code=400,
+        content={"detail": f"Database query failed: {detail}"},
+    )
+
+
+app.add_exception_handler(DBAPIError, _db_query_exception_handler)
 
 # ---- Status Protection (GC-001 Enforcement) ----
 # Register SQLAlchemy event listeners to block direct status mutations

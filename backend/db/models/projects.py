@@ -28,7 +28,7 @@ class ProjectTimeline(Base):
     __tablename__ = "project_timelines"
     timeline_id = Column(Integer, primary_key=True, autoincrement=True)
     project_id = Column(Integer, ForeignKey("projects.project_id", ondelete="CASCADE"), nullable=False)
-    #start_date = Column(Date, nullable=False)
+    start_date = Column(Date, nullable=False)
     planned_end_date = Column(Date, nullable=False)
     actual_end_date = Column(Date)
     planned_start_date = Column(Date)

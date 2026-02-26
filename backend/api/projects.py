@@ -45,6 +45,8 @@ def create_project(
     """
     has_start = project.planned_start_date is not None
     has_end = project.planned_end_date is not None
+    has_actual_start = project.actual_start_date is not None
+    has_actual_end = project.actual_end_date is not None
     if has_start != has_end:
         raise HTTPException(
             status_code=400,
@@ -55,10 +57,21 @@ def create_project(
             status_code=400,
             detail="planned_end_date cannot be before planned_start_date",
         )
+    if has_actual_start and has_actual_end and project.actual_end_date < project.actual_start_date:
+        raise HTTPException(
+            status_code=400,
+            detail="actual_end_date cannot be before actual_start_date",
+        )
 
     # build project model without manager/timeline helper fields
     proj_data = project.model_dump(
-        exclude={"manager_user_id", "planned_start_date", "planned_end_date"}
+        exclude={
+            "manager_user_id",
+            "planned_start_date",
+            "planned_end_date",
+            "actual_start_date",
+            "actual_end_date",
+        }
     )
     db_project = Project(**proj_data)
     db.add(db_project)
@@ -80,8 +93,11 @@ def create_project(
         db.add(
             ProjectTimeline(
                 project_id=db_project.project_id,
+                start_date=project.planned_start_date,
                 planned_start_date=project.planned_start_date,
                 planned_end_date=project.planned_end_date,
+                actual_start_date=project.actual_start_date,
+                actual_end_date=project.actual_end_date,
                 version_number=1,
                 is_current=True,
             )
@@ -100,6 +116,8 @@ def list_projects(db: Session = Depends(get_db)):
         ProjectManager.manager_user_id.label("manager_user_id"),
         ProjectTimeline.planned_start_date.label("planned_start_date"),
         ProjectTimeline.planned_end_date.label("planned_end_date"),
+        ProjectTimeline.actual_start_date.label("actual_start_date"),
+        ProjectTimeline.actual_end_date.label("actual_end_date"),
     ).outerjoin(
         ProjectManager, 
         (Project.project_id == ProjectManager.project_id) & (ProjectManager.is_active == True)
@@ -111,12 +129,14 @@ def list_projects(db: Session = Depends(get_db)):
     ).all()
     
     projects_list = []
-    for p, manager_name, manager_user_id, planned_start_date, planned_end_date in results:
+    for p, manager_name, manager_user_id, planned_start_date, planned_end_date, actual_start_date, actual_end_date in results:
         project_dict = {c.name: getattr(p, c.name) for c in p.__table__.columns}
         project_dict["manager_name"] = manager_name
         project_dict["manager_user_id"] = manager_user_id
         project_dict["planned_start_date"] = planned_start_date
         project_dict["planned_end_date"] = planned_end_date
+        project_dict["actual_start_date"] = actual_start_date
+        project_dict["actual_end_date"] = actual_end_date
         projects_list.append(project_dict)
         
     return projects_list
@@ -129,6 +149,8 @@ def get_project(project_id: int, db: Session = Depends(get_db), current_user: Us
         ProjectManager.manager_user_id.label("manager_user_id"),
         ProjectTimeline.planned_start_date.label("planned_start_date"),
         ProjectTimeline.planned_end_date.label("planned_end_date"),
+        ProjectTimeline.actual_start_date.label("actual_start_date"),
+        ProjectTimeline.actual_end_date.label("actual_end_date"),
     ).outerjoin(
         ProjectManager,
         (Project.project_id == ProjectManager.project_id) & (ProjectManager.is_active == True)
@@ -144,12 +166,14 @@ def get_project(project_id: int, db: Session = Depends(get_db), current_user: Us
     if not result:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    project, manager_name, manager_user_id, planned_start_date, planned_end_date = result
+    project, manager_name, manager_user_id, planned_start_date, planned_end_date, actual_start_date, actual_end_date = result
     project_dict = {c.name: getattr(project, c.name) for c in project.__table__.columns}
     project_dict["manager_name"] = manager_name
     project_dict["manager_user_id"] = manager_user_id
     project_dict["planned_start_date"] = planned_start_date
     project_dict["planned_end_date"] = planned_end_date
+    project_dict["actual_start_date"] = actual_start_date
+    project_dict["actual_end_date"] = actual_end_date
     return project_dict
 
 @router.patch("/{project_id}", response_model=ProjectResponse)
@@ -165,8 +189,12 @@ def update_project(project_id: int, project_update: ProjectUpdate, db: Session =
     manager_user_id = update_data.pop("manager_user_id", None)
     has_planned_start = "planned_start_date" in raw_update
     has_planned_end = "planned_end_date" in raw_update
+    has_actual_start = "actual_start_date" in raw_update
+    has_actual_end = "actual_end_date" in raw_update
     planned_start_date = update_data.pop("planned_start_date", None)
     planned_end_date = update_data.pop("planned_end_date", None)
+    actual_start_date = update_data.pop("actual_start_date", None)
+    actual_end_date = update_data.pop("actual_end_date", None)
 
     if has_planned_start != has_planned_end:
         raise HTTPException(
@@ -182,6 +210,11 @@ def update_project(project_id: int, project_update: ProjectUpdate, db: Session =
         raise HTTPException(
             status_code=400,
             detail="planned_end_date cannot be before planned_start_date",
+        )
+    if has_actual_start and has_actual_end and actual_start_date and actual_end_date and actual_end_date < actual_start_date:
+        raise HTTPException(
+            status_code=400,
+            detail="actual_end_date cannot be before actual_start_date",
         )
 
     old_data = {c.name: getattr(db_project, c.name) for c in db_project.__table__.columns}
@@ -210,18 +243,36 @@ def update_project(project_id: int, project_update: ProjectUpdate, db: Session =
             ProjectTimeline.is_current == True,
         ).first()
         if current_timeline:
+            current_timeline.start_date = planned_start_date
             current_timeline.planned_start_date = planned_start_date
             current_timeline.planned_end_date = planned_end_date
+            if has_actual_start:
+                current_timeline.actual_start_date = actual_start_date
+            if has_actual_end:
+                current_timeline.actual_end_date = actual_end_date
         else:
             db.add(
                 ProjectTimeline(
                     project_id=project_id,
+                    start_date=planned_start_date,
                     planned_start_date=planned_start_date,
                     planned_end_date=planned_end_date,
+                    actual_start_date=actual_start_date if has_actual_start else None,
+                    actual_end_date=actual_end_date if has_actual_end else None,
                     version_number=1,
                     is_current=True,
                 )
             )
+    elif has_actual_start or has_actual_end:
+        current_timeline = db.query(ProjectTimeline).filter(
+            ProjectTimeline.project_id == project_id,
+            ProjectTimeline.is_current == True,
+        ).first()
+        if current_timeline:
+            if has_actual_start:
+                current_timeline.actual_start_date = actual_start_date
+            if has_actual_end:
+                current_timeline.actual_end_date = actual_end_date
     
     log_audit(db, current_user.user_id, "UPDATE", "Project", project_id, old_val=old_data, new_val=update_data)
     db.commit()
@@ -254,6 +305,17 @@ def list_project_managers(project_id: int, db: Session = Depends(get_db)):
 
 @router.post("/timelines", response_model=ProjectTimelineResponse)
 def create_project_timeline(timeline: ProjectTimelineCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if timeline.planned_start_date is None:
+        raise HTTPException(
+            status_code=400,
+            detail="planned_start_date is required for timeline",
+        )
+    if timeline.planned_end_date < timeline.planned_start_date:
+        raise HTTPException(
+            status_code=400,
+            detail="planned_end_date cannot be before planned_start_date",
+        )
+
     if timeline.is_current:
         db.query(ProjectTimeline).filter(
             ProjectTimeline.project_id == timeline.project_id,
@@ -261,7 +323,9 @@ def create_project_timeline(timeline: ProjectTimelineCreate, db: Session = Depen
         ).update({"is_current": False})
     
     version = db.query(ProjectTimeline).filter(ProjectTimeline.project_id == timeline.project_id).count() + 1
-    db_timeline = ProjectTimeline(**timeline.model_dump(), version_number=version)
+    timeline_data = timeline.model_dump()
+    timeline_data["start_date"] = timeline.planned_start_date
+    db_timeline = ProjectTimeline(**timeline_data, version_number=version)
     
     db.add(db_timeline)
     db.commit()

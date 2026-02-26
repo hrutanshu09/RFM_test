@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { projectService } from '../../api/projectService';
 import { fetchEmployees, type EmployeeOption } from '../../api/employees';
@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/useAuth';
 import './project-detail.css';
 
 const ProjectDetail: React.FC = () => {
+  const RESOURCES_PER_PAGE = 12;
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -17,7 +18,16 @@ const ProjectDetail: React.FC = () => {
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSavingAssignment, setIsSavingAssignment] = useState(false);
+  const [savingActualDateField, setSavingActualDateField] = useState<null | 'start' | 'end'>(null);
   const [isAssignFormOpen, setIsAssignFormOpen] = useState(false);
+  const [currentAssignmentsPage, setCurrentAssignmentsPage] = useState(1);
+  const [employeeSearchInput, setEmployeeSearchInput] = useState('');
+  const [isEmployeeDropdownOpen, setIsEmployeeDropdownOpen] = useState(false);
+  const employeeDropdownRef = useRef<HTMLDivElement | null>(null);
+  const [actualDatesForm, setActualDatesForm] = useState({
+    actual_start_date: '',
+    actual_end_date: '',
+  });
   const [assignmentForm, setAssignmentForm] = useState({
     emp_id: '',
     role: '',
@@ -46,7 +56,32 @@ const ProjectDetail: React.FC = () => {
       billing_start_date: '',
       billing_end_date: '',
     });
+    setEmployeeSearchInput('');
+    setIsEmployeeDropdownOpen(false);
   };
+
+  const filteredEmployees = useMemo(() => {
+    const q = employeeSearchInput.trim().toLowerCase();
+    if (!q) return employees;
+    return employees.filter(
+      (emp) =>
+        emp.emp_id.toLowerCase().includes(q) ||
+        emp.full_name.toLowerCase().includes(q),
+    );
+  }, [employees, employeeSearchInput]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        employeeDropdownRef.current &&
+        !employeeDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsEmployeeDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const fetchProjectData = async () => {
     const [projectRes, assignmentsRes, employeesRes] = await Promise.all([
@@ -55,7 +90,12 @@ const ProjectDetail: React.FC = () => {
       fetchEmployees(),
     ]);
     setProject(projectRes.data);
+    setActualDatesForm({
+      actual_start_date: projectRes.data.actual_start_date || '',
+      actual_end_date: projectRes.data.actual_end_date || '',
+    });
     setAssignments(assignmentsRes.data);
+    setCurrentAssignmentsPage(1);
     setEmployees(employeesRes);
   };
 
@@ -109,6 +149,7 @@ const ProjectDetail: React.FC = () => {
       await projectService.assignEmployee(payload);
       const refreshed = await projectService.getProjectAssignments(projectId);
       setAssignments(refreshed.data);
+      setCurrentAssignmentsPage(1);
       resetAssignmentForm();
       setIsAssignFormOpen(false);
     } catch (err) {
@@ -129,14 +170,63 @@ const ProjectDetail: React.FC = () => {
 
       const refreshed = await projectService.getProjectAssignments(projectId);
       setAssignments(refreshed.data);
+      setCurrentAssignmentsPage(1);
     } catch (err) {
       console.error('Failed to unassign resource:', err);
       alert('Unable to unassign resource');
     }
   };
 
+  const handleSaveActualDate = async (field: 'start' | 'end') => {
+    if (field === 'start') {
+      if (
+        actualDatesForm.actual_start_date &&
+        actualDatesForm.actual_end_date &&
+        actualDatesForm.actual_start_date > actualDatesForm.actual_end_date
+      ) {
+        alert('Actual start date cannot be after actual end date.');
+        return;
+      }
+    } else if (
+      actualDatesForm.actual_start_date &&
+      actualDatesForm.actual_end_date &&
+      actualDatesForm.actual_end_date < actualDatesForm.actual_start_date
+    ) {
+      alert('Actual end date cannot be before actual start date.');
+      return;
+    }
+
+    setSavingActualDateField(field);
+    try {
+      const payload =
+        field === 'start'
+          ? { actual_start_date: actualDatesForm.actual_start_date || undefined }
+          : { actual_end_date: actualDatesForm.actual_end_date || undefined };
+
+      const updated = await projectService.updateProject(projectId, payload);
+      setProject(updated.data);
+      setActualDatesForm({
+        actual_start_date: updated.data.actual_start_date || '',
+        actual_end_date: updated.data.actual_end_date || '',
+      });
+    } catch (err) {
+      console.error('Failed to update actual dates:', err);
+      alert(`Unable to update actual ${field} date`);
+    } finally {
+      setSavingActualDateField(null);
+    }
+  };
+
   if (loading) return <div className="loading-state">Loading Project Details...</div>;
   if (!project) return <div className="error-state">Project not found.</div>;
+
+  const assignmentTotalPages = Math.ceil(assignments.length / RESOURCES_PER_PAGE);
+  const safeAssignmentsPage = assignmentTotalPages === 0 ? 1 : Math.min(currentAssignmentsPage, assignmentTotalPages);
+  const assignmentStartIndex = (safeAssignmentsPage - 1) * RESOURCES_PER_PAGE;
+  const paginatedAssignments = assignments.slice(
+    assignmentStartIndex,
+    assignmentStartIndex + RESOURCES_PER_PAGE,
+  );
 
   return (
     <div className="project-detail-container">
@@ -149,7 +239,7 @@ const ProjectDetail: React.FC = () => {
       </div>
 
       <div className="detail-grid">
-        <section className="detail-card">
+        <section className="detail-card full-width">
           <h3>Description</h3>
           <p>{project.description || 'No description provided for this project.'}</p>
           <div className="meta-info">
@@ -157,6 +247,45 @@ const ProjectDetail: React.FC = () => {
             <div className="info-item"><strong>Manager:</strong> {project.manager_name || 'Not Assigned'}</div>
             <div className="info-item"><strong>Planned Start Date:</strong> {project.planned_start_date ? new Date(project.planned_start_date).toLocaleDateString() : 'Not Set'}</div>
             <div className="info-item"><strong>Planned End Date:</strong> {project.planned_end_date ? new Date(project.planned_end_date).toLocaleDateString() : 'Not Set'}</div>
+            <div className="actual-dates-editor">
+              <div className="actual-date-field">
+                <label>Actual Start Date</label>
+                <input
+                  type="date"
+                  value={actualDatesForm.actual_start_date}
+                  onChange={(e) =>
+                    setActualDatesForm((prev) => ({ ...prev, actual_start_date: e.target.value }))
+                  }
+                />
+                <button
+                  type="button"
+                  className="save-actual-date-btn"
+                  onClick={() => handleSaveActualDate('start')}
+                  disabled={savingActualDateField === 'start'}
+                >
+                  {savingActualDateField === 'start' ? 'Saving...' : 'Save Start Date'}
+                </button>
+              </div>
+              <div className="actual-date-field">
+                <label>Actual End Date</label>
+                <input
+                  type="date"
+                  value={actualDatesForm.actual_end_date}
+                  min={actualDatesForm.actual_start_date || undefined}
+                  onChange={(e) =>
+                    setActualDatesForm((prev) => ({ ...prev, actual_end_date: e.target.value }))
+                  }
+                />
+                <button
+                  type="button"
+                  className="save-actual-date-btn"
+                  onClick={() => handleSaveActualDate('end')}
+                  disabled={savingActualDateField === 'end'}
+                >
+                  {savingActualDateField === 'end' ? 'Saving...' : 'Save End Date'}
+                </button>
+              </div>
+            </div>
             <div className="info-item"><strong>Created:</strong> {new Date(project.created_at).toLocaleDateString()}</div>
           </div>
         </section>
@@ -178,65 +307,98 @@ const ProjectDetail: React.FC = () => {
           <div className="section-header">
             <h3>Assigned Resources</h3>
           </div>
-          <table className="assignment-table">
-            <thead>
-              <tr>
-                <th>Resource ID</th>
-                <th>Role</th>
-                <th> Allocation Percentage</th>
-                <th>Start Date</th>
-                <th>End Date</th>
-                <th>Active Status</th>
-                <th>Billable Status</th>
-                <th>Billing Rate</th>
-                <th>Billing Start</th>
-                <th>Billing End</th>
-                <th>Status</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {assignments.map((asgn) => (
-                <tr key={asgn.assignment_id}>
-                  <td>{asgn.emp_id}</td>
-                  <td>{asgn.role || 'General Resource'}</td>
-                  <td>{asgn.allocation_pct}%</td>
-                  <td>{new Date(asgn.start_date).toLocaleDateString()}</td>
-                  <td>{asgn.end_date ? new Date(asgn.end_date).toLocaleDateString() : '-'}</td>
-                  <td>{asgn.status === 'Active' ? 'Active' : 'Inactive'}</td>
-                  <td>{asgn.is_billable ? 'Yes' : 'No'}</td>
-                  <td>
-                    {asgn.billing_rate != null
-                      ? `$${asgn.billing_rate}`
-                      : isAdmin
-                        ? '-'
-                        : 'Restricted'}
-                  </td>
-                  <td>{asgn.billing_start_date ? new Date(asgn.billing_start_date).toLocaleDateString() : '-'}</td>
-                  <td>{asgn.billing_end_date ? new Date(asgn.billing_end_date).toLocaleDateString() : '-'}</td>
-                  <td>{asgn.status}</td>
-                  <td>
-                    {asgn.status !== 'Ended' ? (
-                      <button
-                        className="btn-inline"
-                        onClick={() => handleUnassign(asgn.assignment_id)}
-                        type="button"
-                      >
-                        Unassign
-                      </button>
-                    ) : (
-                      <span className="muted">-</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {assignments.length === 0 && (
+          <div className="assignment-table-container data-table-container">
+            <table className="assignment-table data-table">
+              <thead>
                 <tr>
-                  <td colSpan={12} className="empty-row">No resources assigned yet.</td>
+                  <th>Resource ID</th>
+                  <th>Role</th>
+                  <th> Allocation Percentage</th>
+                  <th>Start Date</th>
+                  <th>End Date</th>
+                  <th>Active Status</th>
+                  <th>Billable Status</th>
+                  <th>Billing Rate</th>
+                  <th>Billing Start</th>
+                  <th>Billing End</th>
+                  <th>Status</th>
+                  <th>Action</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {paginatedAssignments.map((asgn) => (
+                  <tr key={asgn.assignment_id}>
+                    <td>{asgn.emp_id}</td>
+                    <td>{asgn.role || 'General Resource'}</td>
+                    <td>{asgn.allocation_pct}%</td>
+                    <td>{new Date(asgn.start_date).toLocaleDateString()}</td>
+                    <td>{asgn.end_date ? new Date(asgn.end_date).toLocaleDateString() : '-'}</td>
+                    <td>
+                      <span className={`allocation-status-label ${asgn.status === 'Active' ? 'active' : 'inactive'}`}>
+                        {asgn.status === 'Active' ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    <td>{asgn.is_billable ? 'Yes' : 'No'}</td>
+                    <td>
+                      {asgn.billing_rate != null
+                        ? `$${asgn.billing_rate}`
+                        : isAdmin
+                          ? '-'
+                          : 'Restricted'}
+                    </td>
+                    <td>{asgn.billing_start_date ? new Date(asgn.billing_start_date).toLocaleDateString() : '-'}</td>
+                    <td>{asgn.billing_end_date ? new Date(asgn.billing_end_date).toLocaleDateString() : '-'}</td>
+                    <td>{asgn.status}</td>
+                    <td>
+                      {asgn.status !== 'Ended' ? (
+                        <button
+                          className="btn-inline"
+                          onClick={() => handleUnassign(asgn.assignment_id)}
+                          type="button"
+                        >
+                          Unassign
+                        </button>
+                      ) : (
+                        <span className="muted">-</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {assignments.length === 0 && (
+                  <tr>
+                    <td colSpan={12} className="empty-row">No resources assigned yet.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {assignmentTotalPages > 1 && (
+            <div className="assignment-pagination">
+              <button
+                type="button"
+                onClick={() => setCurrentAssignmentsPage((prev) => Math.max(prev - 1, 1))}
+                disabled={safeAssignmentsPage === 1}
+                className="assignment-page-btn"
+              >
+                Previous
+              </button>
+              <span className="assignment-page-meta">
+                Page {safeAssignmentsPage} of {assignmentTotalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setCurrentAssignmentsPage((prev) =>
+                    Math.min(prev + 1, assignmentTotalPages),
+                  )
+                }
+                disabled={safeAssignmentsPage === assignmentTotalPages}
+                className="assignment-page-btn"
+              >
+                Next
+              </button>
+            </div>
+          )}
         </section>
       </div>
 
@@ -254,7 +416,7 @@ const ProjectDetail: React.FC = () => {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="assignment-modal-header">
-              <h3 id="assign-resource-title">Assign Resource</h3>
+              <h3 id="assign-resource-title">Resource Assignment</h3>
               <button type="submit" className="assign-top-submit" disabled={isSavingAssignment}>
                 {isSavingAssignment ? 'Saving...' : 'Assign Resource'}
               </button>
@@ -263,18 +425,45 @@ const ProjectDetail: React.FC = () => {
             <div className="assignment-form">
               <div className="field-with-help">
                 <label>Employee</label>
-                <select
-                  value={assignmentForm.emp_id}
-                  onChange={(e) => setAssignmentForm({ ...assignmentForm, emp_id: e.target.value })}
-                  required
-                >
-                  <option value="">Select Employee</option>
-                  {employees.map((employee) => (
-                    <option key={employee.emp_id} value={employee.emp_id}>
-                      {employee.emp_id} - {employee.full_name}
-                    </option>
-                  ))}
-                </select>
+                <div className="employee-dropdown" ref={employeeDropdownRef}>
+                  <input
+                    type="text"
+                    className="employee-dropdown-trigger"
+                    value={employeeSearchInput}
+                    placeholder="Search employee ID or name"
+                    onChange={(e) => {
+                      setEmployeeSearchInput(e.target.value);
+                      setAssignmentForm({ ...assignmentForm, emp_id: '' });
+                      setIsEmployeeDropdownOpen(true);
+                    }}
+                    onFocus={() => setIsEmployeeDropdownOpen(true)}
+                  />
+                  {isEmployeeDropdownOpen && (
+                    <div className="employee-dropdown-menu">
+                      <div className="employee-dropdown-list">
+                        {filteredEmployees.length > 0 ? (
+                          filteredEmployees.map((employee) => (
+                            <button
+                              key={employee.emp_id}
+                              type="button"
+                              className="employee-dropdown-item"
+                              onClick={() => {
+                                setAssignmentForm({ ...assignmentForm, emp_id: employee.emp_id });
+                                setEmployeeSearchInput(`${employee.emp_id} - ${employee.full_name}`);
+                                setIsEmployeeDropdownOpen(false);
+                              }}
+                            >
+                              {employee.emp_id} - {employee.full_name}
+                            </button>
+                          ))
+                        ) : (
+                          <div className="employee-dropdown-empty">No matching employees</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <input type="hidden" value={assignmentForm.emp_id} required />
               </div>
 
               <div className="field-with-help">

@@ -13,6 +13,8 @@ export interface Project {
   manager_user_id?: number;
   planned_start_date?: string;
   planned_end_date?: string;
+  actual_start_date?: string;
+  actual_end_date?: string;
 }
 
 export interface ProjectTimeline {

@@ -1,8 +1,11 @@
 from sqlalchemy import create_engine
 from dotenv import load_dotenv
 import os
+from pathlib import Path
 
-load_dotenv()
+# Always load backend/.env regardless of current working directory
+ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(ENV_PATH)
 
 DB_HOST = os.getenv("DB_HOST")
 DB_PORT = os.getenv("DB_PORT")

@@ -21,6 +21,8 @@ class ProjectUpdate(BaseModel):
     manager_user_id: Optional[int] = None
     planned_start_date: Optional[date] = None
     planned_end_date: Optional[date] = None
+    actual_start_date: Optional[date] = None
+    actual_end_date: Optional[date] = None
 
 class ProjectResponse(BaseModel):
     project_id: int
@@ -156,6 +158,8 @@ class ProjectCreate(BaseModel):
     manager_user_id: Optional[int] = None  # New field
     planned_start_date: Optional[date] = None
     planned_end_date: Optional[date] = None
+    actual_start_date: Optional[date] = None
+    actual_end_date: Optional[date] = None
 
 # Add manager_name to ProjectResponse
 class ProjectResponse(BaseModel):
@@ -169,5 +173,7 @@ class ProjectResponse(BaseModel):
     manager_user_id: Optional[int] = None
     planned_start_date: Optional[date] = None
     planned_end_date: Optional[date] = None
+    actual_start_date: Optional[date] = None
+    actual_end_date: Optional[date] = None
 
     model_config = ConfigDict(from_attributes=True)
