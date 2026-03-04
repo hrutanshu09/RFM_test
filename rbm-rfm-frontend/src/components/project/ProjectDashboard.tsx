@@ -189,7 +189,7 @@ const ProjectDashboard: React.FC = () => {
                         }
                         className="text-green-700 text-sm font-semibold hover:underline whitespace-nowrap"
                       >
-                        Approve Project
+                        Project Approval
                       </button>
                     )}
                     {isFullAccess && (

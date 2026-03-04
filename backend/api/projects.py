@@ -26,12 +26,14 @@ from schemas.projects import (
     SkillRecommendationEmployeeResult,
 )
 from utils.dependencies import get_current_user, get_current_user_roles
+from services.skill_ai_reranker import ai_rerank_skill_candidates
 from db.models.auth import User
 from db.models.auth import User as AuthUser # Required for join
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 FULL_ACCESS_ROLES = {"admin", "owner"}
 ASSIGNMENT_WRITE_ROLES = {"admin", "owner", "hr", "ta", "manager", "pm"}
+BILLING_ACCESS_ROLES = {"admin", "owner", "manager", "pm"}
 AI_RECOMMENDER_ENABLED = os.getenv("ENABLE_SKILL_RECOMMENDATION_AI", "false").lower() == "true"
 
 
@@ -46,6 +48,11 @@ def _has_full_access(roles: List[str]) -> bool:
 def _can_write_assignments(roles: List[str]) -> bool:
     normalized = _normalized_roles(roles)
     return bool(normalized & ASSIGNMENT_WRITE_ROLES)
+
+
+def _can_access_billing(roles: List[str]) -> bool:
+    normalized = _normalized_roles(roles)
+    return bool(normalized & BILLING_ACCESS_ROLES)
 
 
 def _assert_full_access(roles: List[str]) -> None:
@@ -124,6 +131,23 @@ def _assert_assignment_write_access(roles: List[str]) -> None:
         )
 
 
+def _assert_project_assignment_scope(
+    db: Session,
+    roles: List[str],
+    current_user: User,
+    project_id: int,
+) -> None:
+    _assert_assignment_write_access(roles)
+    normalized = _normalized_roles(roles)
+    has_non_manager_writer_role = bool((normalized & ASSIGNMENT_WRITE_ROLES) - {"manager"})
+    is_manager_only_writer = "manager" in normalized and not has_non_manager_writer_role
+    if is_manager_only_writer and not _is_manager_assigned_to_project(db, project_id, current_user.user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. You are not the assigned manager for this project.",
+        )
+
+
 def _normalize_skill_tokens(values: list[str]) -> list[str]:
     cleaned: list[str] = []
     for value in values:
@@ -191,21 +215,20 @@ def _determine_match_type(query: str, matched_skills: list[str]) -> str:
     return "related"
 
 
-def _score_employee_for_skills(
+def _collect_employee_skill_relevance(
     requested_skills: list[str],
+    expanded_skills: list[str],
     employee_skills: list[str],
-) -> tuple[float, list[str], list[str], str]:
+) -> tuple[list[str], list[str], str]:
     if not requested_skills or not employee_skills:
-        return 0.0, [], [], "No meaningful skill overlap found."
+        return [], [], "No meaningful skill overlap found."
 
     normalized_employee_skills = [s.lower() for s in employee_skills]
-    score = 0.0
     matched_skills: list[str] = []
     related_skills: list[str] = []
 
     for requested in requested_skills:
         if requested in normalized_employee_skills:
-            score += 10
             matched_skills.append(requested)
             continue
 
@@ -214,7 +237,6 @@ def _score_employee_for_skills(
             if requested in skill or skill in requested
         ]
         if partial_hits:
-            score += 6
             related_skills.extend(partial_hits)
             continue
 
@@ -225,8 +247,20 @@ def _score_employee_for_skills(
             if requested_tokens and tokens and requested_tokens.intersection(tokens):
                 related_hits.append(skill)
         if related_hits:
-            score += 3
             related_skills.extend(related_hits)
+
+    related_targets = [skill for skill in expanded_skills if skill not in requested_skills]
+    for related in related_targets:
+        if related in normalized_employee_skills:
+            related_skills.append(related)
+            continue
+
+        partial_related_hits = [
+            skill for skill in normalized_employee_skills
+            if related in skill or skill in related
+        ]
+        if partial_related_hits:
+            related_skills.extend(partial_related_hits)
 
     dedup_matched = sorted(set(matched_skills))
     dedup_related = sorted(set(related_skills) - set(dedup_matched))
@@ -238,17 +272,163 @@ def _score_employee_for_skills(
     if not rationale_parts:
         rationale_parts.append("limited relevance based on partial overlap")
 
-    return score, dedup_matched, dedup_related, "; ".join(rationale_parts)
+    return dedup_matched, dedup_related, "; ".join(rationale_parts)
+
+
+def _expand_requested_skills(
+    requested_skills: list[str],
+    available_skills: set[str],
+) -> list[str]:
+    relation_map: dict[str, list[str]] = {
+        "react": ["javascript", "typescript", "html", "css", "redux", "next.js", "node.js"],
+        "angular": ["typescript", "javascript", "html", "css", "rxjs"],
+        "vue": ["javascript", "typescript", "html", "css", "nuxt.js"],
+        "javascript": ["typescript", "html", "css", "react", "node.js", "express"],
+        "typescript": ["javascript", "react", "angular", "node.js"],
+        "node.js": ["javascript", "typescript", "express", "mongodb", "rest api"],
+        "express": ["node.js", "javascript", "rest api"],
+        "python": ["django", "flask", "fastapi", "postgresql", "sql"],
+        "django": ["python", "postgresql", "rest api"],
+        "flask": ["python", "sqlalchemy", "rest api"],
+        "fastapi": ["python", "pydantic", "sqlalchemy", "rest api"],
+        "java": ["spring", "spring boot", "hibernate", "sql"],
+        "spring": ["java", "spring boot", "hibernate"],
+        "spring boot": ["java", "spring", "rest api", "microservices"],
+        "c#": [".net", "asp.net", "sql server"],
+        ".net": ["c#", "asp.net", "sql server"],
+        "go": ["golang", "microservices", "rest api"],
+        "golang": ["go", "microservices", "rest api"],
+        "postgresql": ["sql", "database", "python", "java"],
+        "mysql": ["sql", "database"],
+        "mongodb": ["nosql", "node.js", "database"],
+        "aws": ["cloud", "devops", "docker", "kubernetes"],
+        "azure": ["cloud", "devops", "docker", "kubernetes"],
+        "gcp": ["cloud", "devops", "docker", "kubernetes"],
+        "docker": ["kubernetes", "devops", "cloud"],
+        "kubernetes": ["docker", "devops", "cloud"],
+    }
+
+    expanded = list(requested_skills)
+    available_lower = {skill.lower() for skill in available_skills}
+
+    def _add_if_available(candidate: str) -> None:
+        c = candidate.strip().lower()
+        if c and c in available_lower and c not in expanded:
+            expanded.append(c)
+
+    for requested in requested_skills:
+        for related in relation_map.get(requested, []):
+            _add_if_available(related)
+
+        requested_tokens = set(requested.split())
+        for available in available_lower:
+            available_tokens = set(available.split())
+            if requested_tokens and available_tokens and requested_tokens.intersection(available_tokens):
+                _add_if_available(available)
+
+    return expanded
+
+
+def _categorize_skills(skills: list[str]) -> dict[str, list[str]]:
+    category_keywords: dict[str, set[str]] = {
+        "Frontend": {
+            "react", "javascript", "typescript", "html", "css", "angular", "vue",
+            "next.js", "nuxt.js", "redux",
+        },
+        "Backend": {
+            "node.js", "express", "python", "java", "spring", "spring boot", "springboot",
+            "django", "flask", "fastapi", ".net", "asp.net", "c#", "go", "golang", "php",
+        },
+        "Database": {
+            "sql", "mysql", "postgresql", "mongodb", "redis", "oracle", "nosql", "database",
+        },
+        "DevOps/Cloud": {
+            "aws", "azure", "gcp", "docker", "kubernetes", "jenkins", "terraform", "ci/cd",
+            "devops",
+        },
+        "Testing/Quality": {
+            "selenium", "cypress", "jest", "pytest", "junit", "testing", "qa",
+        },
+        "Data/AI": {
+            "machine learning", "deep learning", "nlp", "tensorflow", "pytorch", "data science",
+        },
+    }
+
+    grouped: dict[str, list[str]] = {}
+    for skill in sorted({s.strip() for s in skills if s and s.strip()}):
+        normalized = skill.lower()
+        matched_category = None
+        for category, keywords in category_keywords.items():
+            if normalized in keywords or any(keyword in normalized for keyword in keywords):
+                matched_category = category
+                break
+        if matched_category is None:
+            matched_category = "Other"
+        grouped.setdefault(matched_category, []).append(skill)
+    return grouped
+
+
+def _build_relevance_note(
+    requested_skills: list[str],
+    skill_groups: dict[str, list[str]],
+    rationale: str,
+) -> str:
+    req = ", ".join(requested_skills[:3])
+    top_groups = [group for group in skill_groups.keys() if group != "Other"][:2]
+    if top_groups:
+        group_text = " and ".join(top_groups)
+        return (
+            f"Relevant for {req} because this profile shows adjacent {group_text} skills."
+        )
+    if rationale:
+        return f"Relevant for {req} based on overlapping technical patterns."
+    return f"Relevant for {req} as a nearby skill profile."
 
 
 def _maybe_ai_rerank(
+    requested_skills: list[str],
     candidates: list[SkillRecommendationEmployeeResult],
     use_ai: bool,
 ) -> tuple[list[SkillRecommendationEmployeeResult], bool]:
-    # Placeholder provider wrapper. Deterministic scorer remains default.
+    # Deterministic scoring remains the default output on any AI failure.
     if not use_ai or not AI_RECOMMENDER_ENABLED:
         return candidates, False
-    return candidates, True
+
+    candidate_dicts = [
+        {
+            "emp_id": row.emp_id,
+            "full_name": row.full_name,
+            "matched_skills": row.matched_skills,
+            "related_skills": row.related_skills,
+            "status": row.status,
+        }
+        for row in candidates
+    ]
+    ranked_emp_ids, rationales, used_ai = ai_rerank_skill_candidates(
+        requested_skills=requested_skills,
+        candidates=candidate_dicts,
+        required_count=len(candidates),
+    )
+    if not used_ai or not ranked_emp_ids:
+        return candidates, False
+
+    by_emp_id = {candidate.emp_id: candidate for candidate in candidates}
+    reranked: list[SkillRecommendationEmployeeResult] = []
+    seen: set[str] = set()
+    for emp_id in ranked_emp_ids:
+        candidate = by_emp_id.get(emp_id)
+        if candidate and emp_id not in seen:
+            if emp_id in rationales and rationales[emp_id]:
+                candidate.rationale = rationales[emp_id]
+            reranked.append(candidate)
+            seen.add(emp_id)
+
+    for candidate in candidates:
+        if candidate.emp_id not in seen:
+            reranked.append(candidate)
+            seen.add(candidate.emp_id)
+
+    return reranked, True
 
 # --- 1. Project CRUD ---
 
@@ -735,7 +915,12 @@ def assign_employee_to_project(
     current_user: User = Depends(get_current_user),
     roles: List[str] = Depends(get_current_user_roles)
 ):
-    _assert_assignment_write_access(roles)
+    _assert_project_assignment_scope(
+        db=db,
+        roles=roles,
+        current_user=current_user,
+        project_id=assignment.project_id,
+    )
 
     duplicate_assignment = (
         db.query(EmployeeProjectAssignment.assignment_id)
@@ -755,8 +940,10 @@ def assign_employee_to_project(
     assign_data = assignment.model_dump()
     send_for_approval = bool(assign_data.pop("send_for_approval", True))
     full_access = _has_full_access(roles)
+    billing_access = _can_access_billing(roles)
+    billing_access = _can_access_billing(roles)
     
-    if not full_access:
+    if not billing_access:
         assign_data['billing_rate'] = None
         assign_data['billing_start_date'] = None
         assign_data['billing_end_date'] = None
@@ -799,6 +986,7 @@ def list_project_assignments(
     ).order_by(EmployeeProjectAssignment.assignment_id.asc()).all()
     
     full_access = _has_full_access(roles)
+    billing_access = _can_access_billing(roles)
     manager_can_approve_project = _is_manager_role(roles) and _is_manager_assigned_to_project(
         db,
         project_id,
@@ -807,8 +995,12 @@ def list_project_assignments(
 
     response_rows: list[dict] = []
     for assignment in assignments:
-        if not full_access:
+        if not billing_access:
             assignment.billing_rate = None
+            assignment.billing_start_date = None
+            assignment.billing_end_date = None
+            assignment.billing_project_id = None
+            assignment.is_billable = False
         can_current_user_approve = bool(
             manager_can_approve_project and assignment.approval_status == "Pending"
         )
@@ -829,11 +1021,7 @@ def update_project_assignment(
     current_user: User = Depends(get_current_user),
     roles: List[str] = Depends(get_current_user_roles),
 ):
-    if not _can_write_assignments(roles):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied. Insufficient role for resource assignment updates.",
-        )
+    _assert_assignment_write_access(roles)
 
     db_assignment = db.query(EmployeeProjectAssignment).filter(
         EmployeeProjectAssignment.assignment_id == assignment_id
@@ -843,13 +1031,14 @@ def update_project_assignment(
 
     update_data = assignment_update.model_dump(exclude_unset=True)
     full_access = _has_full_access(roles)
+    billing_access = _can_access_billing(roles)
     if not full_access and "status" in update_data:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied. Only Admin or Owner can update assignment status.",
         )
 
-    if not full_access:
+    if not billing_access:
         blocked_financial_fields = {
             "billing_rate",
             "billing_start_date",
@@ -877,8 +1066,12 @@ def update_project_assignment(
     db.commit()
     db.refresh(db_assignment)
 
-    if not full_access:
+    if not billing_access:
         db_assignment.billing_rate = None
+        db_assignment.billing_start_date = None
+        db_assignment.billing_end_date = None
+        db_assignment.billing_project_id = None
+        db_assignment.is_billable = False
     return db_assignment
 
 
@@ -901,6 +1094,13 @@ def update_assignment_approval(
     ).first()
     if not db_assignment:
         raise HTTPException(status_code=404, detail="Assignment not found")
+
+    _assert_project_assignment_scope(
+        db=db,
+        roles=roles,
+        current_user=current_user,
+        project_id=db_assignment.project_id,
+    )
 
     if not _is_manager_assigned_to_project(db, db_assignment.project_id, current_user.user_id):
         raise HTTPException(
@@ -963,7 +1163,12 @@ def search_employees_by_skill(
     current_user: User = Depends(get_current_user),
     roles: List[str] = Depends(get_current_user_roles),
 ):
-    _assert_assignment_write_access(roles)
+    _assert_project_assignment_scope(
+        db=db,
+        roles=roles,
+        current_user=current_user,
+        project_id=project_id,
+    )
 
     project_exists = db.query(Project.project_id).filter(Project.project_id == project_id).first()
     if not project_exists:
@@ -1056,7 +1261,12 @@ def recommend_employees_by_skill(
     current_user: User = Depends(get_current_user),
     roles: List[str] = Depends(get_current_user_roles),
 ):
-    _assert_assignment_write_access(roles)
+    _assert_project_assignment_scope(
+        db=db,
+        roles=roles,
+        current_user=current_user,
+        project_id=project_id,
+    )
 
     project_exists = db.query(Project.project_id).filter(Project.project_id == project_id).first()
     if not project_exists:
@@ -1080,6 +1290,7 @@ def recommend_employees_by_skill(
     )
 
     skills_by_employee: dict[str, dict] = {}
+    available_skill_names: set[str] = set()
     for emp_id, full_name, skill_name in rows:
         if emp_id not in skills_by_employee:
             skills_by_employee[emp_id] = {
@@ -1087,11 +1298,18 @@ def recommend_employees_by_skill(
                 "skills": [],
             }
         skills_by_employee[emp_id]["skills"].append(skill_name)
+        available_skill_names.add(skill_name)
+
+    expanded_requested_skills = _expand_requested_skills(
+        requested_skills=requested_skills,
+        available_skills=available_skill_names,
+    )
 
     all_emp_ids = list(skills_by_employee.keys())
     flags = _get_project_allocation_flags(db=db, project_id=project_id, emp_ids=all_emp_ids)
 
     candidates: list[SkillRecommendationEmployeeResult] = []
+    fallback_pool: list[SkillRecommendationEmployeeResult] = []
     for emp_id, info in skills_by_employee.items():
         emp_flags = flags.get(
             emp_id,
@@ -1103,21 +1321,41 @@ def recommend_employees_by_skill(
         ):
             continue
 
-        score, matched_skills, related_skills, rationale = _score_employee_for_skills(
+        fallback_pool.append(
+            SkillRecommendationEmployeeResult(
+                emp_id=emp_id,
+                full_name=info["full_name"],
+                matched_skills=[],
+                related_skills=sorted({s.lower() for s in info["skills"]})[:6],
+                skill_groups={},
+                rationale="AI fallback candidate from overall nearby skill pool",
+                relevance_note="",
+                already_allocated_to_project=emp_flags["already_allocated_to_project"],
+                allocated_elsewhere=emp_flags["allocated_elsewhere"],
+                status=_allocation_status_from_flags(
+                    already_allocated_to_project=emp_flags["already_allocated_to_project"],
+                    allocated_elsewhere=emp_flags["allocated_elsewhere"],
+                ),
+            )
+        )
+
+        matched_skills, related_skills, rationale = _collect_employee_skill_relevance(
             requested_skills=requested_skills,
+            expanded_skills=expanded_requested_skills,
             employee_skills=info["skills"],
         )
-        if score <= 0:
+        if not matched_skills and not related_skills:
             continue
 
         candidates.append(
             SkillRecommendationEmployeeResult(
                 emp_id=emp_id,
                 full_name=info["full_name"],
-                score=score,
                 matched_skills=matched_skills,
                 related_skills=related_skills,
+                skill_groups={},
                 rationale=rationale,
+                relevance_note="",
                 already_allocated_to_project=emp_flags["already_allocated_to_project"],
                 allocated_elsewhere=emp_flags["allocated_elsewhere"],
                 status=_allocation_status_from_flags(
@@ -1129,17 +1367,43 @@ def recommend_employees_by_skill(
 
     candidates.sort(
         key=lambda row: (
-            -row.score,
             len(row.matched_skills) * -1,
+            len(row.related_skills) * -1,
             1 if row.allocated_elsewhere else 0,
             row.full_name.lower(),
         )
     )
     deterministic_top = candidates[:safe_required_count]
+    candidate_pool_for_rerank = deterministic_top
+    if (
+        payload.ai_enabled
+        and AI_RECOMMENDER_ENABLED
+        and not deterministic_top
+        and fallback_pool
+    ):
+        fallback_pool.sort(
+            key=lambda row: (
+                0 if row.status == "Available" else 1,
+                row.full_name.lower(),
+            )
+        )
+        ai_pool_size = min(max(safe_required_count * 8, 30), len(fallback_pool))
+        candidate_pool_for_rerank = fallback_pool[:ai_pool_size]
+
     reranked, used_ai_rerank = _maybe_ai_rerank(
-        candidates=deterministic_top,
+        requested_skills=requested_skills,
+        candidates=candidate_pool_for_rerank,
         use_ai=payload.ai_enabled,
     )
+
+    for row in reranked:
+        grouped = _categorize_skills(row.matched_skills + row.related_skills)
+        row.skill_groups = grouped
+        row.relevance_note = _build_relevance_note(
+            requested_skills=requested_skills,
+            skill_groups=grouped,
+            rationale=row.rationale,
+        )
 
     return SkillRecommendationResponse(
         requested_skills=requested_skills,

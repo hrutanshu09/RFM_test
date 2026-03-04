@@ -1,13 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { projectService } from '../../api/projectService';
-import { fetchEmployees, type EmployeeOption } from '../../api/employees';
+import {
+  fetchEmployees,
+  fetchEmployeeSkillAssignments,
+  fetchSkillCatalog,
+  type EmployeeOption,
+} from '../../api/employees';
 import type {
   Project,
   EmployeeProjectAssignment,
   AssignmentCreateRequest,
   ProjectTimeline,
-  SkillSearchEmployeeResult,
   SkillRecommendationEmployeeResult,
 } from '../../types/projects';
 import { useAuth } from '../../contexts/useAuth';
@@ -32,17 +36,32 @@ const ProjectDetail: React.FC = () => {
             ? '/manager'
             : '/dashboard';
   const isFullAccess = normalizedRoles.includes('admin') || normalizedRoles.includes('owner');
-  const canWriteAssignments =
+  const [project, setProject] = useState<Project | null>(null);
+  const isManagerOnlyUser =
+    normalizedRoles.includes('manager') &&
+    !normalizedRoles.includes('admin') &&
+    !normalizedRoles.includes('owner') &&
+    !normalizedRoles.includes('hr') &&
+    !normalizedRoles.includes('ta') &&
+    !normalizedRoles.includes('pm');
+  const canAccessBilling =
+    normalizedRoles.includes('admin') ||
+    normalizedRoles.includes('owner') ||
+    normalizedRoles.includes('manager') ||
+    normalizedRoles.includes('pm');
+  const hasAssignmentWriteRole =
     normalizedRoles.includes('admin') ||
     normalizedRoles.includes('owner') ||
     normalizedRoles.includes('hr') ||
     normalizedRoles.includes('ta') ||
     normalizedRoles.includes('manager') ||
     normalizedRoles.includes('pm');
+  const canWriteAssignments = isManagerOnlyUser
+    ? Boolean(project?.can_current_user_approve)
+    : hasAssignmentWriteRole;
   const canEditAssignmentStatus = isFullAccess;
   const canUpdateTimeline = isFullAccess;
 
-  const [project, setProject] = useState<Project | null>(null);
   const canApproveAssignments = normalizedRoles.includes('manager');
   const showApprovalActionColumn = canApproveAssignments;
   const showLifecycleActionColumn = !normalizedRoles.includes('manager');
@@ -73,23 +92,17 @@ const ProjectDetail: React.FC = () => {
   const [statusDrafts, setStatusDrafts] = useState<Record<number, 'Planned' | 'Active'>>({});
   const [assignmentForm, setAssignmentForm] = useState({
     emp_id: '',
-    role: '',
     allocation_pct: 100,
     start_date: '',
     end_date: '',
     status: 'Active' as 'Planned' | 'Active' | 'Ended',
-    is_billable: isFullAccess,
+    is_billable: canAccessBilling,
     billing_rate: '',
     billing_start_date: '',
     billing_end_date: '',
     send_for_approval: true,
   });
   const [isSkillSearchOpen, setIsSkillSearchOpen] = useState(false);
-  const [skillQueryInput, setSkillQueryInput] = useState('');
-  const [debouncedSkillQuery, setDebouncedSkillQuery] = useState('');
-  const [skillSearchResults, setSkillSearchResults] = useState<SkillSearchEmployeeResult[]>([]);
-  const [isSkillSearchLoading, setIsSkillSearchLoading] = useState(false);
-  const [skillSearchError, setSkillSearchError] = useState('');
   const [requiredCount, setRequiredCount] = useState(3);
   const [desiredSkillsInput, setDesiredSkillsInput] = useState('');
   const [recommendations, setRecommendations] = useState<SkillRecommendationEmployeeResult[]>([]);
@@ -97,6 +110,13 @@ const ProjectDetail: React.FC = () => {
   const [recommendationError, setRecommendationError] = useState('');
   const [lastAutoRecommendationKey, setLastAutoRecommendationKey] = useState('');
   const [requestedAiRecommendation, setRequestedAiRecommendation] = useState(false);
+  const [employeeSkillCatalogMap, setEmployeeSkillCatalogMap] = useState<Record<number, string>>({});
+  const [employeeAvailableSkills, setEmployeeAvailableSkills] = useState<string[]>([]);
+  const [selectedAssignmentSkills, setSelectedAssignmentSkills] = useState<string[]>([]);
+  const [pendingRecommendedSkills, setPendingRecommendedSkills] = useState<string[]>([]);
+  const [isEmployeeSkillsDropdownOpen, setIsEmployeeSkillsDropdownOpen] = useState(false);
+  const [isEmployeeSkillsLoading, setIsEmployeeSkillsLoading] = useState(false);
+  const employeeSkillsDropdownRef = useRef<HTMLDivElement | null>(null);
 
   const pathnameProjectId = location.pathname.split('/').filter(Boolean).pop();
   const resolvedProjectId = id ?? pathnameProjectId ?? '';
@@ -105,12 +125,11 @@ const ProjectDetail: React.FC = () => {
   const resetAssignmentForm = () => {
     setAssignmentForm({
       emp_id: '',
-      role: '',
       allocation_pct: 100,
       start_date: '',
       end_date: '',
       status: 'Active',
-      is_billable: isFullAccess,
+      is_billable: canAccessBilling,
       billing_rate: '',
       billing_start_date: '',
       billing_end_date: '',
@@ -118,6 +137,10 @@ const ProjectDetail: React.FC = () => {
     });
     setEmployeeSearchInput('');
     setIsEmployeeDropdownOpen(false);
+    setEmployeeAvailableSkills([]);
+    setSelectedAssignmentSkills([]);
+    setPendingRecommendedSkills([]);
+    setIsEmployeeSkillsDropdownOpen(false);
     setAssignmentStep(0);
   };
 
@@ -139,6 +162,12 @@ const ProjectDetail: React.FC = () => {
       ) {
         setIsEmployeeDropdownOpen(false);
       }
+      if (
+        employeeSkillsDropdownRef.current &&
+        !employeeSkillsDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsEmployeeSkillsDropdownOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -146,10 +175,15 @@ const ProjectDetail: React.FC = () => {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setDebouncedSkillQuery(skillQueryInput.trim());
-    }, 350);
+      if (!isSkillSearchOpen) return;
+      if (!desiredSkillsInput.trim()) return;
+      const autoKey = `${projectId}|${desiredSkillsInput.trim().toLowerCase()}|${requiredCount}`;
+      if (autoKey === lastAutoRecommendationKey) return;
+      setLastAutoRecommendationKey(autoKey);
+      runRecommendations(true);
+    }, 450);
     return () => window.clearTimeout(timer);
-  }, [skillQueryInput]);
+  }, [desiredSkillsInput, isSkillSearchOpen, lastAutoRecommendationKey, projectId, requiredCount]);
 
   const fetchProjectData = async () => {
     const [projectRes, assignmentsRes, employeesRes, timelinesRes] = await Promise.all([
@@ -202,47 +236,22 @@ const ProjectDetail: React.FC = () => {
     return () => window.clearTimeout(scrollTimer);
   }, [location.hash, location.search, project]);
 
-  useEffect(() => {
-    const loadSkillSearch = async () => {
-      if (!isSkillSearchOpen || !canWriteAssignments) return;
-      if (!debouncedSkillQuery) {
-        setSkillSearchResults([]);
-        setSkillSearchError('');
-        return;
-      }
-
-      setIsSkillSearchLoading(true);
-      setSkillSearchError('');
-      try {
-        const response = await projectService.searchEmployeesBySkill(projectId, debouncedSkillQuery, 20);
-        setSkillSearchResults(response.data.results);
-      } catch (err) {
-        console.error('Failed to search employees by skill:', err);
-        setSkillSearchError('Unable to search employees by skill.');
-      } finally {
-        setIsSkillSearchLoading(false);
-      }
-    };
-
-    loadSkillSearch();
-  }, [canWriteAssignments, debouncedSkillQuery, isSkillSearchOpen, projectId]);
-
-  const exactSkillMatchCount = useMemo(
-    () => skillSearchResults.filter((item) => item.match_type === 'exact').length,
-    [skillSearchResults],
-  );
-
   const desiredSkills = useMemo(() => {
     const fromInput = desiredSkillsInput
       .split(',')
       .map((item) => item.trim())
       .filter(Boolean);
-    if (fromInput.length > 0) return fromInput;
-    if (skillQueryInput.trim()) return [skillQueryInput.trim()];
-    return [];
-  }, [desiredSkillsInput, skillQueryInput]);
+    return fromInput;
+  }, [desiredSkillsInput]);
 
-  const openAssignmentWithEmployee = (employeeId: string, employeeName: string) => {
+  const openAssignmentWithEmployeeSkills = (
+    employeeId: string,
+    employeeName: string,
+    recommendedSkills: string[],
+  ) => {
+    setPendingRecommendedSkills(
+      Array.from(new Set(recommendedSkills.map((skill) => skill.trim()).filter(Boolean))),
+    );
     setAssignmentForm((prev) => ({ ...prev, emp_id: employeeId }));
     setEmployeeSearchInput(`${employeeId} - ${employeeName}`);
     setIsEmployeeDropdownOpen(false);
@@ -250,6 +259,62 @@ const ProjectDetail: React.FC = () => {
     setIsAssignFormOpen(true);
     setIsSkillSearchOpen(false);
   };
+
+  useEffect(() => {
+    const loadCatalog = async () => {
+      if (Object.keys(employeeSkillCatalogMap).length > 0) return;
+      try {
+        const catalog = await fetchSkillCatalog();
+        const mapped = catalog.reduce<Record<number, string>>((acc, row) => {
+          acc[row.skill_id] = row.skill_name;
+          return acc;
+        }, {});
+        setEmployeeSkillCatalogMap(mapped);
+      } catch (err) {
+        console.error('Failed to load skill catalog:', err);
+      }
+    };
+    loadCatalog();
+  }, [employeeSkillCatalogMap]);
+
+  useEffect(() => {
+    const loadEmployeeSkills = async () => {
+      if (!isAssignFormOpen || !assignmentForm.emp_id) {
+        setEmployeeAvailableSkills([]);
+        setSelectedAssignmentSkills([]);
+        setIsEmployeeSkillsDropdownOpen(false);
+        return;
+      }
+
+      setIsEmployeeSkillsLoading(true);
+      try {
+        const assignments = await fetchEmployeeSkillAssignments(assignmentForm.emp_id);
+        const names = assignments
+          .map((row) => employeeSkillCatalogMap[row.skill_id])
+          .filter((name): name is string => Boolean(name))
+          .sort((a, b) => a.localeCompare(b));
+        setEmployeeAvailableSkills(names);
+
+        if (pendingRecommendedSkills.length > 0) {
+          const preselected = names.filter((name) =>
+            pendingRecommendedSkills.some((rec) => rec.toLowerCase() === name.toLowerCase()),
+          );
+          setSelectedAssignmentSkills(preselected.length > 0 ? preselected : names.slice(0, Math.min(2, names.length)));
+          setPendingRecommendedSkills([]);
+        } else {
+          setSelectedAssignmentSkills((prev) => prev.filter((skill) => names.includes(skill)));
+        }
+      } catch (err) {
+        console.error('Failed to load employee skills:', err);
+        setEmployeeAvailableSkills([]);
+        setSelectedAssignmentSkills([]);
+      } finally {
+        setIsEmployeeSkillsLoading(false);
+      }
+    };
+
+    loadEmployeeSkills();
+  }, [assignmentForm.emp_id, employeeSkillCatalogMap, isAssignFormOpen, pendingRecommendedSkills]);
 
   const runRecommendations = async (useAi: boolean) => {
     if (!desiredSkills.length) {
@@ -276,32 +341,18 @@ const ProjectDetail: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    if (!isSkillSearchOpen) return;
-    if (!desiredSkills.length) return;
-    if (exactSkillMatchCount >= requiredCount) return;
-
-    const autoKey = `${projectId}|${desiredSkills.join(',').toLowerCase()}|${requiredCount}|${exactSkillMatchCount}`;
-    if (autoKey === lastAutoRecommendationKey) return;
-    setLastAutoRecommendationKey(autoKey);
-    runRecommendations(false);
-  }, [
-    desiredSkills,
-    exactSkillMatchCount,
-    isSkillSearchOpen,
-    lastAutoRecommendationKey,
-    projectId,
-    requiredCount,
-  ]);
-
   const handleAssignEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!assignmentForm.emp_id || !assignmentForm.start_date) {
       alert('Please select employee and start date.');
       return;
     }
+    if (selectedAssignmentSkills.length === 0) {
+      alert('Please select at least one required skill from the employee.');
+      return;
+    }
 
-    if (isFullAccess && assignmentForm.is_billable && !assignmentForm.billing_rate) {
+    if (canAccessBilling && assignmentForm.is_billable && !assignmentForm.billing_rate) {
       alert('Please provide billing rate for billable assignments.');
       return;
     }
@@ -311,7 +362,9 @@ const ProjectDetail: React.FC = () => {
       const payload: AssignmentCreateRequest = {
         emp_id: assignmentForm.emp_id,
         project_id: projectId,
-        role: assignmentForm.role || undefined,
+        role: selectedAssignmentSkills.length
+          ? `Skills: ${selectedAssignmentSkills.join(', ')}`
+          : undefined,
         allocation_pct: Number(assignmentForm.allocation_pct),
         start_date: assignmentForm.start_date,
         end_date: assignmentForm.end_date || undefined,
@@ -552,6 +605,15 @@ const ProjectDetail: React.FC = () => {
   if (Number.isNaN(projectId)) return <div className="error-state">Invalid project route.</div>;
   if (!project) return <div className="error-state">Project not found.</div>;
 
+  const renderAssignmentSkills = (roleValue?: string) => {
+    if (!roleValue || !roleValue.trim()) return 'Not specified';
+    const normalized = roleValue.trim();
+    if (normalized.toLowerCase().startsWith('skills:')) {
+      return normalized.slice(7).trim() || 'Not specified';
+    }
+    return normalized;
+  };
+
   const assignmentTotalPages = Math.ceil(assignments.length / RESOURCES_PER_PAGE);
   const safeAssignmentsPage = assignmentTotalPages === 0 ? 1 : Math.min(currentAssignmentsPage, assignmentTotalPages);
   const assignmentStartIndex = (safeAssignmentsPage - 1) * RESOURCES_PER_PAGE;
@@ -757,7 +819,6 @@ const ProjectDetail: React.FC = () => {
                   className="assign-toggle-btn assign-search-btn"
                   onClick={() => {
                     setIsSkillSearchOpen(true);
-                    setSkillSearchError('');
                     setRecommendationError('');
                   }}
                 >
@@ -792,15 +853,15 @@ const ProjectDetail: React.FC = () => {
               <thead>
                 <tr>
                   <th>Resource ID</th>
-                  <th>Role</th>
-                  <th> Allocation Percentage</th>
+                  <th>Skills</th>
+                  <th className="allocation-pct-col">Allocation Percentage</th>
                   <th>Start Date</th>
                   <th>End Date</th>
                   <th>Active Status</th>
-                  {isFullAccess && (
-                    <>
-                      <th>Billable Status</th>
-                      <th>Billing Rate</th>
+                {canAccessBilling && (
+                  <>
+                    <th>Billable Status</th>
+                    <th>Billing Rate</th>
                       <th>Billing Start</th>
                       <th>Billing End</th>
                     </>
@@ -822,8 +883,8 @@ const ProjectDetail: React.FC = () => {
                         </div>
                       </div>
                     </td>
-                    <td>{asgn.role || 'General Resource'}</td>
-                    <td>{asgn.allocation_pct}%</td>
+                    <td>{renderAssignmentSkills(asgn.role)}</td>
+                    <td className="allocation-pct-col">{asgn.allocation_pct}%</td>
                     <td>{new Date(asgn.start_date).toLocaleDateString()}</td>
                     <td>{asgn.end_date ? new Date(asgn.end_date).toLocaleDateString() : '-'}</td>
                     <td>
@@ -831,10 +892,10 @@ const ProjectDetail: React.FC = () => {
                         {asgn.status === 'Active' ? 'Active' : 'Inactive'}
                       </span>
                     </td>
-                    {isFullAccess && (
-                      <>
-                        <td>{asgn.is_billable ? 'Yes' : 'No'}</td>
-                        <td>
+                {canAccessBilling && (
+                  <>
+                    <td>{asgn.is_billable ? 'Yes' : 'No'}</td>
+                    <td>
                           {asgn.billing_rate != null
                             ? `$${asgn.billing_rate}`
                             : '-'}
@@ -909,7 +970,7 @@ const ProjectDetail: React.FC = () => {
                     <td
                       colSpan={
                         8 +
-                        (isFullAccess ? 4 : 0) +
+                        (canAccessBilling ? 4 : 0) +
                         (showApprovalActionColumn ? 1 : 0) +
                         (showLifecycleActionColumn ? 1 : 0)
                       }
@@ -986,16 +1047,6 @@ const ProjectDetail: React.FC = () => {
               </button>
             </div>
 
-            <div className="field-with-help">
-              <label>Skill / Tech Query</label>
-              <input
-                type="text"
-                value={skillQueryInput}
-                onChange={(e) => setSkillQueryInput(e.target.value)}
-                placeholder="Try: React, Python, FastAPI"
-              />
-            </div>
-
             <div className="skill-search-meta-grid">
               <div className="field-with-help">
                 <label>Desired Skills (comma separated)</label>
@@ -1003,7 +1054,8 @@ const ProjectDetail: React.FC = () => {
                   type="text"
                   value={desiredSkillsInput}
                   onChange={(e) => setDesiredSkillsInput(e.target.value)}
-                  placeholder="Defaults to query when empty"
+                  className="skill-search-input"
+                  placeholder="Try: React, Python, FastAPI"
                 />
               </div>
               <div className="field-with-help">
@@ -1012,136 +1064,86 @@ const ProjectDetail: React.FC = () => {
                   type="number"
                   min={1}
                   max={20}
+                  step={1}
+                  className="skill-search-input"
                   value={requiredCount}
-                  onChange={(e) => setRequiredCount(Number(e.target.value) || 1)}
+                  onChange={(e) => setRequiredCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
                 />
               </div>
             </div>
-
-            {isSkillSearchLoading && <div className="muted">Searching employees...</div>}
-            {skillSearchError && <div className="skill-search-error">{skillSearchError}</div>}
-
-            <div className="skill-search-results">
-              {skillSearchResults.map((result) => (
-                <div key={result.emp_id} className="skill-search-card">
-                  <div className="skill-search-card-header">
-                    <div>
-                      <div className="resource-id-text">{result.emp_id}</div>
-                      <div className="resource-name-text">{result.full_name}</div>
-                    </div>
-                    <span
-                      className={`skill-status-chip ${
-                        result.status === 'Available'
-                          ? 'status-available'
-                          : result.status === 'Already allocated to this project'
-                            ? 'status-same-project'
-                            : 'status-allocated-elsewhere'
-                      }`}
-                    >
-                      {result.status}
-                    </span>
-                  </div>
-
-                  <div className="skill-tag-wrap">
-                    {result.matched_skills.map((skill) => (
-                      <span key={`${result.emp_id}-${skill}`} className="skill-tag">
-                        {skill}
-                      </span>
-                    ))}
-                  </div>
-
-                  {result.already_allocated_to_project && (
-                    <div className="skill-search-warning">
-                      This employee is already allocated to this project.
-                    </div>
-                  )}
-
-                  <div className="skill-search-actions">
-                    <button
-                      type="button"
-                      className="assign-top-submit"
-                      onClick={() => openAssignmentWithEmployee(result.emp_id, result.full_name)}
-                    >
-                      Use this employee
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {!isSkillSearchLoading && skillSearchResults.length === 0 && debouncedSkillQuery && (
-              <div className="empty-row">No skill matches found.</div>
-            )}
-
-            {(exactSkillMatchCount === 0 || exactSkillMatchCount < requiredCount) && (
-              <div className="recommendation-panel">
-                <div className="recommendation-panel-header">
-                  <h4>Recommendations</h4>
-                  <div className="recommendation-actions">
-                    <button
-                      type="button"
-                      className="secondary-btn"
-                      disabled={isRecommending}
-                      onClick={() => runRecommendations(false)}
-                    >
-                      {isRecommending ? 'Loading...' : 'Get Recommendations'}
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary-btn"
-                      disabled={isRecommending}
-                      onClick={() => runRecommendations(true)}
-                    >
-                      {isRecommending ? 'Loading...' : 'Get AI Recommendations'}
-                    </button>
-                  </div>
-                </div>
-                {recommendationError && <div className="skill-search-error">{recommendationError}</div>}
-                {requestedAiRecommendation && recommendations.length > 0 && (
-                  <div className="muted">AI rerank requested (falls back to deterministic if AI feature flag is off).</div>
-                )}
-                <div className="skill-search-results">
-                  {recommendations.map((result) => (
-                    <div key={`rec-${result.emp_id}`} className="skill-search-card recommendation-card">
-                      <div className="skill-search-card-header">
-                        <div>
-                          <div className="resource-id-text">{result.emp_id}</div>
-                          <div className="resource-name-text">{result.full_name}</div>
-                        </div>
-                        <span className="score-chip">Score: {result.score.toFixed(1)}</span>
-                      </div>
-                      <div className="skill-tag-wrap">
-                        {result.matched_skills.map((skill) => (
-                          <span key={`exact-${result.emp_id}-${skill}`} className="skill-tag">
-                            {skill}
-                          </span>
-                        ))}
-                        {result.related_skills.map((skill) => (
-                          <span key={`related-${result.emp_id}-${skill}`} className="skill-tag skill-tag-related">
-                            {skill}
-                          </span>
-                        ))}
-                      </div>
-                      <div className="recommendation-rationale">{result.rationale}</div>
-                      {result.already_allocated_to_project && (
-                        <div className="skill-search-warning">
-                          This employee is already allocated to this project.
-                        </div>
-                      )}
-                      <div className="skill-search-actions">
-                        <button
-                          type="button"
-                          className="assign-top-submit"
-                          onClick={() => openAssignmentWithEmployee(result.emp_id, result.full_name)}
-                        >
-                          Use this employee
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+            <div className="recommendation-panel">
+              <div className="recommendation-panel-header">
+                <h4>AI Recommendations</h4>
+                <div className="recommendation-actions">
+                  
+                 
                 </div>
               </div>
-            )}
+              {recommendationError && <div className="skill-search-error">{recommendationError}</div>}
+              {requestedAiRecommendation && recommendations.length > 0 && (
+                <div className="muted"></div>
+              )}
+              <div className="skill-search-results">
+                {recommendations.map((result) => (
+                  <div key={`rec-${result.emp_id}`} className="skill-search-card recommendation-card">
+                    <div className="skill-search-card-header">
+                      <div>
+                        <div className="resource-id-text">{result.emp_id}</div>
+                        <div className="resource-name-text">{result.full_name}</div>
+                      </div>
+                    </div>
+                    <div className="skill-tag-wrap">
+                      {result.matched_skills.map((skill) => (
+                        <span key={`exact-${result.emp_id}-${skill}`} className="skill-tag">
+                          {skill}
+                        </span>
+                      ))}
+                      {result.related_skills.map((skill) => (
+                        <span key={`related-${result.emp_id}-${skill}`} className="skill-tag skill-tag-related">
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                    {Object.entries(result.skill_groups || {}).length > 0 && (
+                      <div className="skill-group-list">
+                        {Object.entries(result.skill_groups).map(([group, skills]) => (
+                          <div key={`${result.emp_id}-${group}`} className="skill-group-item">
+                            <span className="skill-group-title">{group}:</span> {skills.join(', ')}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="recommendation-rationale">{result.rationale}</div>
+                    {result.relevance_note && (
+                      <div className="recommendation-note">{result.relevance_note}</div>
+                    )}
+                    {result.already_allocated_to_project && (
+                      <div className="skill-search-warning">
+                        This employee is already allocated to this project.
+                      </div>
+                    )}
+                    <div className="skill-search-actions">
+                      <button
+                        type="button"
+                        className="assign-top-submit"
+                        onClick={() =>
+                          openAssignmentWithEmployeeSkills(
+                            result.emp_id,
+                            result.full_name,
+                            [...result.matched_skills, ...result.related_skills],
+                          )
+                        }
+                      >
+                        Use this employee
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {!isRecommending && desiredSkills.length > 0 && recommendations.length === 0 && !recommendationError && (
+                <div className="empty-row">No AI recommendations found for the provided skills.</div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1243,12 +1245,61 @@ const ProjectDetail: React.FC = () => {
                   </div>
 
                   <div className="field-with-help">
-                    <label>Role</label>
-                    <input
-                      type="text"
-                      value={assignmentForm.role}
-                      onChange={(e) => setAssignmentForm({ ...assignmentForm, role: e.target.value })}
-                    />
+                    <label>Required Skills from Employee</label>
+                    <div className="employee-skill-dropdown" ref={employeeSkillsDropdownRef}>
+                      <button
+                        type="button"
+                        className="employee-skill-trigger"
+                        disabled={!assignmentForm.emp_id || isEmployeeSkillsLoading}
+                        onClick={() => setIsEmployeeSkillsDropdownOpen((prev) => !prev)}
+                      >
+                        {isEmployeeSkillsLoading
+                          ? 'Loading skills...'
+                          : selectedAssignmentSkills.length > 0
+                            ? `${selectedAssignmentSkills.length} skill(s) selected`
+                            : assignmentForm.emp_id
+                              ? 'Select required skills'
+                              : 'Select employee first'}
+                      </button>
+                      {isEmployeeSkillsDropdownOpen && (
+                        <div className="employee-skill-menu">
+                          {employeeAvailableSkills.length > 0 ? (
+                            employeeAvailableSkills.map((skill) => {
+                              const checked = selectedAssignmentSkills.includes(skill);
+                              return (
+                                <label key={skill} className="employee-skill-item">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setSelectedAssignmentSkills((prev) => [...prev, skill]);
+                                      } else {
+                                        setSelectedAssignmentSkills((prev) =>
+                                          prev.filter((currentSkill) => currentSkill !== skill),
+                                        );
+                                      }
+                                    }}
+                                  />
+                                  <span>{skill}</span>
+                                </label>
+                              );
+                            })
+                          ) : (
+                            <div className="employee-dropdown-empty">No skills found for this employee</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {selectedAssignmentSkills.length > 0 && (
+                      <div className="selected-skill-chips">
+                        {selectedAssignmentSkills.map((skill) => (
+                          <span key={skill} className="skill-tag">
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div className="field-with-help">
@@ -1321,7 +1372,7 @@ const ProjectDetail: React.FC = () => {
                     </div>
                   )}
 
-                  {isFullAccess && (
+                  {canAccessBilling && (
                     <>
                       <div className="field-with-help">
                         <label>Billable Status</label>
@@ -1410,6 +1461,10 @@ const ProjectDetail: React.FC = () => {
                     event.stopPropagation();
                     if (!assignmentForm.emp_id || !assignmentForm.start_date) {
                       alert('Please select employee and start date.');
+                      return;
+                    }
+                    if (selectedAssignmentSkills.length === 0) {
+                      alert('Please select at least one required skill from the employee.');
                       return;
                     }
                     setAssignmentStep(1);

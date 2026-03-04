@@ -213,10 +213,11 @@ class SkillRecommendationRequest(BaseModel):
 class SkillRecommendationEmployeeResult(BaseModel):
     emp_id: str
     full_name: str
-    score: float
     matched_skills: list[str]
     related_skills: list[str]
+    skill_groups: dict[str, list[str]] = Field(default_factory=dict)
     rationale: str
+    relevance_note: str = ""
     already_allocated_to_project: bool
     allocated_elsewhere: bool
     status: Literal[

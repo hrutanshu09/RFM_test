@@ -46,7 +46,13 @@ const ProjectModal: React.FC<ProjectModalProps> = ({
     setCurrentStep(0);
 
     fetchUsers()
-      .then((data) => setManagers(data))
+      .then((data) =>
+        setManagers(
+          data.filter((user) =>
+            (user.roles || []).some((role) => role.toLowerCase() === "manager"),
+          ),
+        ),
+      )
       .catch((err) =>
         console.error("Failed to load users for manager dropdown", err),
       );

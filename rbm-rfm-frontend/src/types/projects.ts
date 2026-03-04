@@ -129,10 +129,11 @@ export interface SkillRecommendationRequest {
 export interface SkillRecommendationEmployeeResult {
   emp_id: string;
   full_name: string;
-  score: number;
   matched_skills: string[];
   related_skills: string[];
+  skill_groups: Record<string, string[]>;
   rationale: string;
+  relevance_note: string;
   already_allocated_to_project: boolean;
   allocated_elsewhere: boolean;
   status: 'Available' | 'Already allocated to this project' | 'Allocated elsewhere';
