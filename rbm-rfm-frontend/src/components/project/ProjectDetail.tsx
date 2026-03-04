@@ -2,7 +2,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { projectService } from '../../api/projectService';
 import { fetchEmployees, type EmployeeOption } from '../../api/employees';
-import { Project, EmployeeProjectAssignment, AssignmentCreateRequest, ProjectTimeline } from '../../types/projects';
+import type {
+  Project,
+  EmployeeProjectAssignment,
+  AssignmentCreateRequest,
+  ProjectTimeline,
+  SkillSearchEmployeeResult,
+  SkillRecommendationEmployeeResult,
+} from '../../types/projects';
 import { useAuth } from '../../contexts/useAuth';
 import './project-detail.css';
 
@@ -48,6 +55,7 @@ const ProjectDetail: React.FC = () => {
   const [isSavingTimeline, setIsSavingTimeline] = useState(false);
   const [isSavingApproval, setIsSavingApproval] = useState(false);
   const [isAssignFormOpen, setIsAssignFormOpen] = useState(false);
+  const [assignmentStep, setAssignmentStep] = useState(0);
   const [currentAssignmentsPage, setCurrentAssignmentsPage] = useState(1);
   const [employeeSearchInput, setEmployeeSearchInput] = useState('');
   const [isEmployeeDropdownOpen, setIsEmployeeDropdownOpen] = useState(false);
@@ -76,6 +84,19 @@ const ProjectDetail: React.FC = () => {
     billing_end_date: '',
     send_for_approval: true,
   });
+  const [isSkillSearchOpen, setIsSkillSearchOpen] = useState(false);
+  const [skillQueryInput, setSkillQueryInput] = useState('');
+  const [debouncedSkillQuery, setDebouncedSkillQuery] = useState('');
+  const [skillSearchResults, setSkillSearchResults] = useState<SkillSearchEmployeeResult[]>([]);
+  const [isSkillSearchLoading, setIsSkillSearchLoading] = useState(false);
+  const [skillSearchError, setSkillSearchError] = useState('');
+  const [requiredCount, setRequiredCount] = useState(3);
+  const [desiredSkillsInput, setDesiredSkillsInput] = useState('');
+  const [recommendations, setRecommendations] = useState<SkillRecommendationEmployeeResult[]>([]);
+  const [isRecommending, setIsRecommending] = useState(false);
+  const [recommendationError, setRecommendationError] = useState('');
+  const [lastAutoRecommendationKey, setLastAutoRecommendationKey] = useState('');
+  const [requestedAiRecommendation, setRequestedAiRecommendation] = useState(false);
 
   const pathnameProjectId = location.pathname.split('/').filter(Boolean).pop();
   const resolvedProjectId = id ?? pathnameProjectId ?? '';
@@ -97,6 +118,7 @@ const ProjectDetail: React.FC = () => {
     });
     setEmployeeSearchInput('');
     setIsEmployeeDropdownOpen(false);
+    setAssignmentStep(0);
   };
 
   const filteredEmployees = useMemo(() => {
@@ -121,6 +143,13 @@ const ProjectDetail: React.FC = () => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSkillQuery(skillQueryInput.trim());
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [skillQueryInput]);
 
   const fetchProjectData = async () => {
     const [projectRes, assignmentsRes, employeesRes, timelinesRes] = await Promise.all([
@@ -173,6 +202,98 @@ const ProjectDetail: React.FC = () => {
     return () => window.clearTimeout(scrollTimer);
   }, [location.hash, location.search, project]);
 
+  useEffect(() => {
+    const loadSkillSearch = async () => {
+      if (!isSkillSearchOpen || !canWriteAssignments) return;
+      if (!debouncedSkillQuery) {
+        setSkillSearchResults([]);
+        setSkillSearchError('');
+        return;
+      }
+
+      setIsSkillSearchLoading(true);
+      setSkillSearchError('');
+      try {
+        const response = await projectService.searchEmployeesBySkill(projectId, debouncedSkillQuery, 20);
+        setSkillSearchResults(response.data.results);
+      } catch (err) {
+        console.error('Failed to search employees by skill:', err);
+        setSkillSearchError('Unable to search employees by skill.');
+      } finally {
+        setIsSkillSearchLoading(false);
+      }
+    };
+
+    loadSkillSearch();
+  }, [canWriteAssignments, debouncedSkillQuery, isSkillSearchOpen, projectId]);
+
+  const exactSkillMatchCount = useMemo(
+    () => skillSearchResults.filter((item) => item.match_type === 'exact').length,
+    [skillSearchResults],
+  );
+
+  const desiredSkills = useMemo(() => {
+    const fromInput = desiredSkillsInput
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (fromInput.length > 0) return fromInput;
+    if (skillQueryInput.trim()) return [skillQueryInput.trim()];
+    return [];
+  }, [desiredSkillsInput, skillQueryInput]);
+
+  const openAssignmentWithEmployee = (employeeId: string, employeeName: string) => {
+    setAssignmentForm((prev) => ({ ...prev, emp_id: employeeId }));
+    setEmployeeSearchInput(`${employeeId} - ${employeeName}`);
+    setIsEmployeeDropdownOpen(false);
+    setAssignmentStep(0);
+    setIsAssignFormOpen(true);
+    setIsSkillSearchOpen(false);
+  };
+
+  const runRecommendations = async (useAi: boolean) => {
+    if (!desiredSkills.length) {
+      setRecommendationError('Enter at least one desired skill.');
+      return;
+    }
+
+    setIsRecommending(true);
+    setRecommendationError('');
+    try {
+      const response = await projectService.recommendEmployeesBySkill(projectId, {
+        requested_skills: desiredSkills,
+        required_count: requiredCount,
+        allow_existing_project_assignments: false,
+        ai_enabled: useAi,
+      });
+      setRecommendations(response.data.results);
+      setRequestedAiRecommendation(useAi);
+    } catch (err) {
+      console.error('Failed to fetch recommendations:', err);
+      setRecommendationError('Unable to fetch recommendations.');
+    } finally {
+      setIsRecommending(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isSkillSearchOpen) return;
+    if (!desiredSkills.length) return;
+    if (exactSkillMatchCount >= requiredCount) return;
+
+    const autoKey = `${projectId}|${desiredSkills.join(',').toLowerCase()}|${requiredCount}|${exactSkillMatchCount}`;
+    if (autoKey === lastAutoRecommendationKey) return;
+    setLastAutoRecommendationKey(autoKey);
+    runRecommendations(false);
+  }, [
+    desiredSkills,
+    exactSkillMatchCount,
+    isSkillSearchOpen,
+    lastAutoRecommendationKey,
+    projectId,
+    requiredCount,
+  ]);
+
   const handleAssignEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!assignmentForm.emp_id || !assignmentForm.start_date) {
@@ -213,7 +334,12 @@ const ProjectDetail: React.FC = () => {
       setIsAssignFormOpen(false);
     } catch (err) {
       console.error('Failed to assign employee:', err);
-      alert('Unable to assign employee');
+      const statusCode = (err as { response?: { status?: number } })?.response?.status;
+      if (statusCode === 409) {
+        alert('This employee is already actively assigned to this project.');
+      } else {
+        alert('Unable to assign employee');
+      }
     } finally {
       setIsSavingAssignment(false);
     }
@@ -625,13 +751,34 @@ const ProjectDetail: React.FC = () => {
           <div className="section-header assign-toolbar">
             <h3>Resource Assignment</h3>
             {canWriteAssignments && (
-              <button
-                type="button"
-                className="assign-toggle-btn"
-                onClick={() => setIsAssignFormOpen((prev) => !prev)}
-              >
-                {isAssignFormOpen ? 'Close Form' : 'Assign Resource'}
-              </button>
+              <div className="assign-action-group">
+                <button
+                  type="button"
+                  className="assign-toggle-btn assign-search-btn"
+                  onClick={() => {
+                    setIsSkillSearchOpen(true);
+                    setSkillSearchError('');
+                    setRecommendationError('');
+                  }}
+                >
+                  Search by Skill / Tech Stack
+                </button>
+                <button
+                  type="button"
+                  className="assign-toggle-btn"
+                  onClick={() => {
+                    if (isAssignFormOpen) {
+                      setIsAssignFormOpen(false);
+                      setAssignmentStep(0);
+                      return;
+                    }
+                    setAssignmentStep(0);
+                    setIsAssignFormOpen(true);
+                  }}
+                >
+                  {isAssignFormOpen ? 'Close Form' : 'Assign Resource'}
+                </button>
+              </div>
             )}
           </div>
         </section>
@@ -817,10 +964,194 @@ const ProjectDetail: React.FC = () => {
         </section>
       </div>
 
+      {isSkillSearchOpen && canWriteAssignments && (
+        <div
+          className="assignment-modal-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsSkillSearchOpen(false);
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="skill-search-title"
+        >
+          <div className="assignment-modal skill-search-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="assignment-modal-header">
+              <h3 id="skill-search-title">Search by Skill / Tech Stack</h3>
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={() => setIsSkillSearchOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="field-with-help">
+              <label>Skill / Tech Query</label>
+              <input
+                type="text"
+                value={skillQueryInput}
+                onChange={(e) => setSkillQueryInput(e.target.value)}
+                placeholder="Try: React, Python, FastAPI"
+              />
+            </div>
+
+            <div className="skill-search-meta-grid">
+              <div className="field-with-help">
+                <label>Desired Skills (comma separated)</label>
+                <input
+                  type="text"
+                  value={desiredSkillsInput}
+                  onChange={(e) => setDesiredSkillsInput(e.target.value)}
+                  placeholder="Defaults to query when empty"
+                />
+              </div>
+              <div className="field-with-help">
+                <label>Need More Employees</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={requiredCount}
+                  onChange={(e) => setRequiredCount(Number(e.target.value) || 1)}
+                />
+              </div>
+            </div>
+
+            {isSkillSearchLoading && <div className="muted">Searching employees...</div>}
+            {skillSearchError && <div className="skill-search-error">{skillSearchError}</div>}
+
+            <div className="skill-search-results">
+              {skillSearchResults.map((result) => (
+                <div key={result.emp_id} className="skill-search-card">
+                  <div className="skill-search-card-header">
+                    <div>
+                      <div className="resource-id-text">{result.emp_id}</div>
+                      <div className="resource-name-text">{result.full_name}</div>
+                    </div>
+                    <span
+                      className={`skill-status-chip ${
+                        result.status === 'Available'
+                          ? 'status-available'
+                          : result.status === 'Already allocated to this project'
+                            ? 'status-same-project'
+                            : 'status-allocated-elsewhere'
+                      }`}
+                    >
+                      {result.status}
+                    </span>
+                  </div>
+
+                  <div className="skill-tag-wrap">
+                    {result.matched_skills.map((skill) => (
+                      <span key={`${result.emp_id}-${skill}`} className="skill-tag">
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+
+                  {result.already_allocated_to_project && (
+                    <div className="skill-search-warning">
+                      This employee is already allocated to this project.
+                    </div>
+                  )}
+
+                  <div className="skill-search-actions">
+                    <button
+                      type="button"
+                      className="assign-top-submit"
+                      onClick={() => openAssignmentWithEmployee(result.emp_id, result.full_name)}
+                    >
+                      Use this employee
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {!isSkillSearchLoading && skillSearchResults.length === 0 && debouncedSkillQuery && (
+              <div className="empty-row">No skill matches found.</div>
+            )}
+
+            {(exactSkillMatchCount === 0 || exactSkillMatchCount < requiredCount) && (
+              <div className="recommendation-panel">
+                <div className="recommendation-panel-header">
+                  <h4>Recommendations</h4>
+                  <div className="recommendation-actions">
+                    <button
+                      type="button"
+                      className="secondary-btn"
+                      disabled={isRecommending}
+                      onClick={() => runRecommendations(false)}
+                    >
+                      {isRecommending ? 'Loading...' : 'Get Recommendations'}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-btn"
+                      disabled={isRecommending}
+                      onClick={() => runRecommendations(true)}
+                    >
+                      {isRecommending ? 'Loading...' : 'Get AI Recommendations'}
+                    </button>
+                  </div>
+                </div>
+                {recommendationError && <div className="skill-search-error">{recommendationError}</div>}
+                {requestedAiRecommendation && recommendations.length > 0 && (
+                  <div className="muted">AI rerank requested (falls back to deterministic if AI feature flag is off).</div>
+                )}
+                <div className="skill-search-results">
+                  {recommendations.map((result) => (
+                    <div key={`rec-${result.emp_id}`} className="skill-search-card recommendation-card">
+                      <div className="skill-search-card-header">
+                        <div>
+                          <div className="resource-id-text">{result.emp_id}</div>
+                          <div className="resource-name-text">{result.full_name}</div>
+                        </div>
+                        <span className="score-chip">Score: {result.score.toFixed(1)}</span>
+                      </div>
+                      <div className="skill-tag-wrap">
+                        {result.matched_skills.map((skill) => (
+                          <span key={`exact-${result.emp_id}-${skill}`} className="skill-tag">
+                            {skill}
+                          </span>
+                        ))}
+                        {result.related_skills.map((skill) => (
+                          <span key={`related-${result.emp_id}-${skill}`} className="skill-tag skill-tag-related">
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="recommendation-rationale">{result.rationale}</div>
+                      {result.already_allocated_to_project && (
+                        <div className="skill-search-warning">
+                          This employee is already allocated to this project.
+                        </div>
+                      )}
+                      <div className="skill-search-actions">
+                        <button
+                          type="button"
+                          className="assign-top-submit"
+                          onClick={() => openAssignmentWithEmployee(result.emp_id, result.full_name)}
+                        >
+                          Use this employee
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {isAssignFormOpen && canWriteAssignments && (
         <div
           className="assignment-modal-overlay"
-          onClick={() => setIsAssignFormOpen(false)}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsAssignFormOpen(false);
+          }}
           role="dialog"
           aria-modal="true"
           aria-labelledby="assign-resource-title"
@@ -832,186 +1163,220 @@ const ProjectDetail: React.FC = () => {
           >
             <div className="assignment-modal-header">
               <h3 id="assign-resource-title">Resource Assignment</h3>
-              <button type="submit" className="assign-top-submit" disabled={isSavingAssignment}>
-                {isSavingAssignment ? 'Saving...' : 'Assign Resource'}
-              </button>
+            </div>
+
+            <div className="flex items-center gap-2 p-2 rounded-xl border border-gray-200 bg-gray-50 mb-2">
+              {[
+                { label: 'Assignment Basics' },
+                { label: 'Approval & Billing' },
+              ].map((step, index) => {
+                const isActive = index === assignmentStep;
+                const isCompleted = index < assignmentStep;
+                return (
+                  <div key={step.label} className="flex items-center flex-1">
+                    <div
+                      className={`flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] font-semibold ${
+                        isActive
+                          ? 'bg-blue-500 text-white'
+                          : isCompleted
+                            ? 'bg-green-500 text-white'
+                            : 'bg-white text-gray-600 border border-gray-200'
+                      }`}
+                    >
+                      <span className="w-4 h-4 rounded-full bg-white/30 flex items-center justify-center text-[10px]">
+                        {index + 1}
+                      </span>
+                      <span className="whitespace-nowrap">{step.label}</span>
+                    </div>
+                    {index < 1 && (
+                      <div className={`h-0.5 flex-1 mx-2 ${isCompleted ? 'bg-green-500' : 'bg-gray-200'}`} />
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             <div className="assignment-form">
-              <div className="field-with-help">
-                <label>Employee</label>
-                <div className="employee-dropdown" ref={employeeDropdownRef}>
-                  <input
-                    type="text"
-                    className="employee-dropdown-trigger"
-                    value={employeeSearchInput}
-                    placeholder="Search employee ID or name"
-                    onChange={(e) => {
-                      setEmployeeSearchInput(e.target.value);
-                      setAssignmentForm({ ...assignmentForm, emp_id: '' });
-                      setIsEmployeeDropdownOpen(true);
-                    }}
-                    onFocus={() => setIsEmployeeDropdownOpen(true)}
-                  />
-                  {isEmployeeDropdownOpen && (
-                    <div className="employee-dropdown-menu">
-                      <div className="employee-dropdown-list">
-                        {filteredEmployees.length > 0 ? (
-                          filteredEmployees.map((employee) => (
-                            <button
-                              key={employee.emp_id}
-                              type="button"
-                              className="employee-dropdown-item"
-                              onClick={() => {
-                                setAssignmentForm({ ...assignmentForm, emp_id: employee.emp_id });
-                                setEmployeeSearchInput(`${employee.emp_id} - ${employee.full_name}`);
-                                setIsEmployeeDropdownOpen(false);
-                              }}
-                            >
-                              {employee.emp_id} - {employee.full_name}
-                            </button>
-                          ))
-                        ) : (
-                          <div className="employee-dropdown-empty">No matching employees</div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <input type="hidden" value={assignmentForm.emp_id} required />
-              </div>
-
-              <div className="field-with-help">
-                <label>Role</label>
-                <input
-                  type="text"
-                  value={assignmentForm.role}
-                  onChange={(e) => setAssignmentForm({ ...assignmentForm, role: e.target.value })}
-                />
-              </div>
-
-              <div className="field-with-help">
-                <label>Allocation Percentage</label>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={assignmentForm.allocation_pct}
-                  onChange={(e) => setAssignmentForm({ ...assignmentForm, allocation_pct: Number(e.target.value) })}
-                  required
-                />
-              </div>
-
-              <div className="field-with-help">
-                <label>Assignment Start Date</label>
-                <input
-                  type="date"
-                  value={assignmentForm.start_date}
-                  onChange={(e) => setAssignmentForm({ ...assignmentForm, start_date: e.target.value })}
-                  required
-                />
-              </div>
-
-              <div className="field-with-help">
-                <label>Assignment End Date</label>
-                <input
-                  type="date"
-                  value={assignmentForm.end_date}
-                  min={assignmentForm.start_date || undefined}
-                  onChange={(e) => setAssignmentForm({ ...assignmentForm, end_date: e.target.value })}
-                />
-              </div>
-
-              <div className="field-with-help">
-                <label>Active Status</label>
-                <select
-                  value={assignmentForm.status}
-                  onChange={(e) =>
-                    setAssignmentForm({
-                      ...assignmentForm,
-                      status: e.target.value as 'Planned' | 'Active' | 'Ended',
-                    })
-                  }
-                >
-                  <option value="Planned">Planned</option>
-                  <option value="Active">Active</option>
-                  <option value="Ended">Ended</option>
-                </select>
-              </div>
-
-              {isFullAccess && (
-                <div className="field-with-help">
-                  <label>Send For Manager Approval</label>
-                  <select
-                    value={assignmentForm.send_for_approval ? 'Yes' : 'No'}
-                    onChange={(e) =>
-                      setAssignmentForm({
-                        ...assignmentForm,
-                        send_for_approval: e.target.value === 'Yes',
-                      })
-                    }
-                  >
-                    <option value="Yes">Yes</option>
-                    <option value="No">No</option>
-                  </select>
-                </div>
-              )}
-
-              {isFullAccess && (
+              {assignmentStep === 0 ? (
                 <>
                   <div className="field-with-help">
-                    <label>Billable Status</label>
-                    <select
-                      value={assignmentForm.is_billable ? 'Yes' : 'No'}
-                      onChange={(e) => {
-                        const isBillable = e.target.value === 'Yes';
-                        setAssignmentForm({
-                          ...assignmentForm,
-                          is_billable: isBillable,
-                          billing_rate: isBillable ? assignmentForm.billing_rate : '',
-                          billing_start_date: isBillable ? assignmentForm.billing_start_date : '',
-                          billing_end_date: isBillable ? assignmentForm.billing_end_date : '',
-                        });
-                      }}
-                    >
-                      <option value="Yes">Yes</option>
-                      <option value="No">No</option>
-                    </select>
+                    <label>Employee</label>
+                    <div className="employee-dropdown" ref={employeeDropdownRef}>
+                      <input
+                        type="text"
+                        className="employee-dropdown-trigger"
+                        value={employeeSearchInput}
+                        placeholder="Search employee ID or name"
+                        onChange={(e) => {
+                          setEmployeeSearchInput(e.target.value);
+                          setAssignmentForm({ ...assignmentForm, emp_id: '' });
+                          setIsEmployeeDropdownOpen(true);
+                        }}
+                        onFocus={() => setIsEmployeeDropdownOpen(true)}
+                      />
+                      {isEmployeeDropdownOpen && (
+                        <div className="employee-dropdown-menu">
+                          <div className="employee-dropdown-list">
+                            {filteredEmployees.length > 0 ? (
+                              filteredEmployees.map((employee) => (
+                                <button
+                                  key={employee.emp_id}
+                                  type="button"
+                                  className="employee-dropdown-item"
+                                  onClick={() => {
+                                    setAssignmentForm({ ...assignmentForm, emp_id: employee.emp_id });
+                                    setEmployeeSearchInput(`${employee.emp_id} - ${employee.full_name}`);
+                                    setIsEmployeeDropdownOpen(false);
+                                  }}
+                                >
+                                  {employee.emp_id} - {employee.full_name}
+                                </button>
+                              ))
+                            ) : (
+                              <div className="employee-dropdown-empty">No matching employees</div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <input type="hidden" value={assignmentForm.emp_id} required />
                   </div>
 
                   <div className="field-with-help">
-                    <label>Billing Rate</label>
+                    <label>Role</label>
+                    <input
+                      type="text"
+                      value={assignmentForm.role}
+                      onChange={(e) => setAssignmentForm({ ...assignmentForm, role: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="field-with-help">
+                    <label>Allocation Percentage</label>
                     <input
                       type="number"
                       min={0}
-                      step={0.01}
-                      value={assignmentForm.billing_rate}
-                      onChange={(e) => setAssignmentForm({ ...assignmentForm, billing_rate: e.target.value })}
-                      disabled={!assignmentForm.is_billable}
+                      max={100}
+                      step={1}
+                      value={assignmentForm.allocation_pct}
+                      onChange={(e) => setAssignmentForm({ ...assignmentForm, allocation_pct: Number(e.target.value) })}
+                      required
                     />
                   </div>
 
                   <div className="field-with-help">
-                    <label>Billing Start Date</label>
+                    <label>Assignment Start Date</label>
                     <input
                       type="date"
-                      value={assignmentForm.billing_start_date}
-                      onChange={(e) => setAssignmentForm({ ...assignmentForm, billing_start_date: e.target.value })}
-                      disabled={!assignmentForm.is_billable}
+                      value={assignmentForm.start_date}
+                      onChange={(e) => setAssignmentForm({ ...assignmentForm, start_date: e.target.value })}
+                      required
                     />
                   </div>
 
                   <div className="field-with-help">
-                    <label>Billing End Date</label>
+                    <label>Assignment End Date</label>
                     <input
                       type="date"
-                      value={assignmentForm.billing_end_date}
-                      min={assignmentForm.billing_start_date || undefined}
-                      onChange={(e) => setAssignmentForm({ ...assignmentForm, billing_end_date: e.target.value })}
-                      disabled={!assignmentForm.is_billable}
+                      value={assignmentForm.end_date}
+                      min={assignmentForm.start_date || undefined}
+                      onChange={(e) => setAssignmentForm({ ...assignmentForm, end_date: e.target.value })}
                     />
                   </div>
+
+                  <div className="field-with-help">
+                    <label>Active Status</label>
+                    <select
+                      value={assignmentForm.status}
+                      onChange={(e) =>
+                        setAssignmentForm({
+                          ...assignmentForm,
+                          status: e.target.value as 'Planned' | 'Active' | 'Ended',
+                        })
+                      }
+                    >
+                      <option value="Planned">Planned</option>
+                      <option value="Active">Active</option>
+                      <option value="Ended">Ended</option>
+                    </select>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {isFullAccess && (
+                    <div className="field-with-help">
+                      <label>Send For Manager Approval</label>
+                      <select
+                        value={assignmentForm.send_for_approval ? 'Yes' : 'No'}
+                        onChange={(e) =>
+                          setAssignmentForm({
+                            ...assignmentForm,
+                            send_for_approval: e.target.value === 'Yes',
+                          })
+                        }
+                      >
+                        <option value="Yes">Yes</option>
+                        <option value="No">No</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {isFullAccess && (
+                    <>
+                      <div className="field-with-help">
+                        <label>Billable Status</label>
+                        <select
+                          value={assignmentForm.is_billable ? 'Yes' : 'No'}
+                          onChange={(e) => {
+                            const isBillable = e.target.value === 'Yes';
+                            setAssignmentForm({
+                              ...assignmentForm,
+                              is_billable: isBillable,
+                              billing_rate: isBillable ? assignmentForm.billing_rate : '',
+                              billing_start_date: isBillable ? assignmentForm.billing_start_date : '',
+                              billing_end_date: isBillable ? assignmentForm.billing_end_date : '',
+                            });
+                          }}
+                        >
+                          <option value="Yes">Yes</option>
+                          <option value="No">No</option>
+                        </select>
+                      </div>
+
+                      <div className="field-with-help">
+                        <label>Billing Rate</label>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={assignmentForm.billing_rate}
+                          onChange={(e) => setAssignmentForm({ ...assignmentForm, billing_rate: e.target.value })}
+                          disabled={!assignmentForm.is_billable}
+                        />
+                      </div>
+
+                      <div className="field-with-help">
+                        <label>Billing Start Date</label>
+                        <input
+                          type="date"
+                          value={assignmentForm.billing_start_date}
+                          onChange={(e) => setAssignmentForm({ ...assignmentForm, billing_start_date: e.target.value })}
+                          disabled={!assignmentForm.is_billable}
+                        />
+                      </div>
+
+                      <div className="field-with-help">
+                        <label>Billing End Date</label>
+                        <input
+                          type="date"
+                          value={assignmentForm.billing_end_date}
+                          min={assignmentForm.billing_start_date || undefined}
+                          onChange={(e) => setAssignmentForm({ ...assignmentForm, billing_end_date: e.target.value })}
+                          disabled={!assignmentForm.is_billable}
+                        />
+                      </div>
+                    </>
+                  )}
                 </>
               )}
             </div>
@@ -1027,6 +1392,36 @@ const ProjectDetail: React.FC = () => {
               >
                 Cancel
               </button>
+              {assignmentStep > 0 && (
+                <button
+                  type="button"
+                  className="secondary-btn"
+                  onClick={() => setAssignmentStep((prev) => Math.max(prev - 1, 0))}
+                >
+                  Back
+                </button>
+              )}
+              {assignmentStep === 0 ? (
+                <button
+                  type="button"
+                  className="assign-top-submit"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (!assignmentForm.emp_id || !assignmentForm.start_date) {
+                      alert('Please select employee and start date.');
+                      return;
+                    }
+                    setAssignmentStep(1);
+                  }}
+                >
+                  Continue to Step 2
+                </button>
+              ) : (
+                <button type="submit" className="assign-top-submit" disabled={isSavingAssignment}>
+                  {isSavingAssignment ? 'Saving...' : 'Assign Resource'}
+                </button>
+              )}
             </div>
           </form>
         </div>

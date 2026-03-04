@@ -102,6 +102,48 @@ export interface AssignmentApprovalRequest {
   approval_status: 'Approved' | 'Rejected';
   approval_note?: string;
 }
+
+export interface SkillSearchEmployeeResult {
+  emp_id: string;
+  full_name: string;
+  matched_skills: string[];
+  match_type: 'exact' | 'partial' | 'related';
+  already_allocated_to_project: boolean;
+  allocated_elsewhere: boolean;
+  status: 'Available' | 'Already allocated to this project' | 'Allocated elsewhere';
+}
+
+export interface SkillSearchResponse {
+  query: string;
+  limit: number;
+  results: SkillSearchEmployeeResult[];
+}
+
+export interface SkillRecommendationRequest {
+  requested_skills: string[];
+  required_count?: number;
+  allow_existing_project_assignments?: boolean;
+  ai_enabled?: boolean;
+}
+
+export interface SkillRecommendationEmployeeResult {
+  emp_id: string;
+  full_name: string;
+  score: number;
+  matched_skills: string[];
+  related_skills: string[];
+  rationale: string;
+  already_allocated_to_project: boolean;
+  allocated_elsewhere: boolean;
+  status: 'Available' | 'Already allocated to this project' | 'Allocated elsewhere';
+}
+
+export interface SkillRecommendationResponse {
+  requested_skills: string[];
+  required_count: number;
+  used_ai_rerank: boolean;
+  results: SkillRecommendationEmployeeResult[];
+}
 export type AssignmentCreateRequest = Omit<
   EmployeeProjectAssignment,
   | 'assignment_id'

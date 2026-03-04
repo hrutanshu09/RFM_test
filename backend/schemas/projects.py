@@ -181,3 +181,53 @@ class EmployeeProjectAssignmentResponse(BaseModel):
 class AssignmentApprovalRequest(BaseModel):
     approval_status: Literal["Approved", "Rejected"]
     approval_note: Optional[str] = None
+
+
+class SkillSearchEmployeeResult(BaseModel):
+    emp_id: str
+    full_name: str
+    matched_skills: list[str]
+    match_type: Literal["exact", "partial", "related"]
+    already_allocated_to_project: bool
+    allocated_elsewhere: bool
+    status: Literal[
+        "Available",
+        "Already allocated to this project",
+        "Allocated elsewhere",
+    ]
+
+
+class SkillSearchResponse(BaseModel):
+    query: str
+    limit: int
+    results: list[SkillSearchEmployeeResult]
+
+
+class SkillRecommendationRequest(BaseModel):
+    requested_skills: list[str] = Field(default_factory=list)
+    required_count: Optional[int] = Field(default=5, ge=1, le=50)
+    allow_existing_project_assignments: bool = False
+    ai_enabled: bool = False
+
+
+class SkillRecommendationEmployeeResult(BaseModel):
+    emp_id: str
+    full_name: str
+    score: float
+    matched_skills: list[str]
+    related_skills: list[str]
+    rationale: str
+    already_allocated_to_project: bool
+    allocated_elsewhere: bool
+    status: Literal[
+        "Available",
+        "Already allocated to this project",
+        "Allocated elsewhere",
+    ]
+
+
+class SkillRecommendationResponse(BaseModel):
+    requested_skills: list[str]
+    required_count: int
+    used_ai_rerank: bool
+    results: list[SkillRecommendationEmployeeResult]

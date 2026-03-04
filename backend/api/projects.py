@@ -2,11 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 import sqlalchemy as sa
 from typing import List
+import os
 import json
 from datetime import datetime, timezone
 
 from db.session import get_db
 from db.models.projects import Project, ProjectManager, ProjectTimeline, EmployeeProjectAssignment
+from db.models.employee import Employee
+from db.models.employee_skill import EmployeeSkill
+from db.models.skill import Skill
 from db.models.audit_log import AuditLog
 from schemas.projects import (
     ProjectCreate, ProjectUpdate, ProjectResponse,
@@ -15,6 +19,11 @@ from schemas.projects import (
     ProjectTimelineCreate, ProjectTimelineUpdate, ProjectTimelineResponse,
     EmployeeProjectAssignmentCreate, EmployeeProjectAssignmentUpdate, EmployeeProjectAssignmentResponse,
     AssignmentApprovalRequest,
+    SkillSearchResponse,
+    SkillSearchEmployeeResult,
+    SkillRecommendationRequest,
+    SkillRecommendationResponse,
+    SkillRecommendationEmployeeResult,
 )
 from utils.dependencies import get_current_user, get_current_user_roles
 from db.models.auth import User
@@ -23,6 +32,7 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 
 FULL_ACCESS_ROLES = {"admin", "owner"}
 ASSIGNMENT_WRITE_ROLES = {"admin", "owner", "hr", "ta", "manager", "pm"}
+AI_RECOMMENDER_ENABLED = os.getenv("ENABLE_SKILL_RECOMMENDATION_AI", "false").lower() == "true"
 
 
 def _normalized_roles(roles: List[str]) -> set[str]:
@@ -104,6 +114,141 @@ def log_audit(db: Session, user_id: int, action: str, entity_name: str, entity_i
         new_value=json.dumps(new_val, default=str) if new_val else None
     )
     db.add(audit)
+
+
+def _assert_assignment_write_access(roles: List[str]) -> None:
+    if not _can_write_assignments(roles):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Insufficient role for resource assignment updates.",
+        )
+
+
+def _normalize_skill_tokens(values: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    for value in values:
+        token = value.strip().lower()
+        if token and token not in cleaned:
+            cleaned.append(token)
+    return cleaned
+
+
+def _active_assignment_filter() -> sa.sql.elements.BinaryExpression:
+    return EmployeeProjectAssignment.status.in_(["Planned", "Active"])
+
+
+def _get_project_allocation_flags(
+    db: Session,
+    project_id: int,
+    emp_ids: list[str],
+) -> dict[str, dict[str, bool]]:
+    if not emp_ids:
+        return {}
+
+    rows = (
+        db.query(
+            EmployeeProjectAssignment.emp_id,
+            EmployeeProjectAssignment.project_id,
+        )
+        .filter(
+            EmployeeProjectAssignment.emp_id.in_(emp_ids),
+            _active_assignment_filter(),
+        )
+        .all()
+    )
+    flags: dict[str, dict[str, bool]] = {
+        emp_id: {
+            "already_allocated_to_project": False,
+            "allocated_elsewhere": False,
+        }
+        for emp_id in emp_ids
+    }
+    for emp_id, assigned_project_id in rows:
+        if assigned_project_id == project_id:
+            flags[emp_id]["already_allocated_to_project"] = True
+        else:
+            flags[emp_id]["allocated_elsewhere"] = True
+    return flags
+
+
+def _allocation_status_from_flags(
+    already_allocated_to_project: bool,
+    allocated_elsewhere: bool,
+) -> str:
+    if already_allocated_to_project:
+        return "Already allocated to this project"
+    if allocated_elsewhere:
+        return "Allocated elsewhere"
+    return "Available"
+
+
+def _determine_match_type(query: str, matched_skills: list[str]) -> str:
+    q = query.strip().lower()
+    if any(skill.lower() == q for skill in matched_skills):
+        return "exact"
+    if any(q in skill.lower() or skill.lower() in q for skill in matched_skills):
+        return "partial"
+    return "related"
+
+
+def _score_employee_for_skills(
+    requested_skills: list[str],
+    employee_skills: list[str],
+) -> tuple[float, list[str], list[str], str]:
+    if not requested_skills or not employee_skills:
+        return 0.0, [], [], "No meaningful skill overlap found."
+
+    normalized_employee_skills = [s.lower() for s in employee_skills]
+    score = 0.0
+    matched_skills: list[str] = []
+    related_skills: list[str] = []
+
+    for requested in requested_skills:
+        if requested in normalized_employee_skills:
+            score += 10
+            matched_skills.append(requested)
+            continue
+
+        partial_hits = [
+            skill for skill in normalized_employee_skills
+            if requested in skill or skill in requested
+        ]
+        if partial_hits:
+            score += 6
+            related_skills.extend(partial_hits)
+            continue
+
+        requested_tokens = set(requested.split())
+        related_hits = []
+        for skill in normalized_employee_skills:
+            tokens = set(skill.split())
+            if requested_tokens and tokens and requested_tokens.intersection(tokens):
+                related_hits.append(skill)
+        if related_hits:
+            score += 3
+            related_skills.extend(related_hits)
+
+    dedup_matched = sorted(set(matched_skills))
+    dedup_related = sorted(set(related_skills) - set(dedup_matched))
+    rationale_parts = []
+    if dedup_matched:
+        rationale_parts.append(f"exact matches: {', '.join(dedup_matched)}")
+    if dedup_related:
+        rationale_parts.append(f"similar skills: {', '.join(dedup_related)}")
+    if not rationale_parts:
+        rationale_parts.append("limited relevance based on partial overlap")
+
+    return score, dedup_matched, dedup_related, "; ".join(rationale_parts)
+
+
+def _maybe_ai_rerank(
+    candidates: list[SkillRecommendationEmployeeResult],
+    use_ai: bool,
+) -> tuple[list[SkillRecommendationEmployeeResult], bool]:
+    # Placeholder provider wrapper. Deterministic scorer remains default.
+    if not use_ai or not AI_RECOMMENDER_ENABLED:
+        return candidates, False
+    return candidates, True
 
 # --- 1. Project CRUD ---
 
@@ -590,10 +735,21 @@ def assign_employee_to_project(
     current_user: User = Depends(get_current_user),
     roles: List[str] = Depends(get_current_user_roles)
 ):
-    if not _can_write_assignments(roles):
+    _assert_assignment_write_access(roles)
+
+    duplicate_assignment = (
+        db.query(EmployeeProjectAssignment.assignment_id)
+        .filter(
+            EmployeeProjectAssignment.project_id == assignment.project_id,
+            EmployeeProjectAssignment.emp_id == assignment.emp_id,
+            _active_assignment_filter(),
+        )
+        .first()
+    )
+    if duplicate_assignment:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied. Insufficient role for resource assignment updates.",
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Employee is already actively assigned to this project.",
         )
 
     assign_data = assignment.model_dump()
@@ -795,4 +951,199 @@ def update_assignment_approval(
     return _build_assignment_response_dict(
         assignment=db_assignment,
         can_current_user_approve=can_current_user_approve,
+    )
+
+
+@router.get("/{project_id}/skill-search", response_model=SkillSearchResponse)
+def search_employees_by_skill(
+    project_id: int,
+    query: str,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    roles: List[str] = Depends(get_current_user_roles),
+):
+    _assert_assignment_write_access(roles)
+
+    project_exists = db.query(Project.project_id).filter(Project.project_id == project_id).first()
+    if not project_exists:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    normalized_query = query.strip()
+    if not normalized_query:
+        return SkillSearchResponse(query=query, limit=limit, results=[])
+
+    safe_limit = max(1, min(limit, 100))
+
+    rows = (
+        db.query(
+            Employee.emp_id,
+            Employee.full_name,
+            Skill.skill_name,
+        )
+        .join(EmployeeSkill, EmployeeSkill.emp_id == Employee.emp_id)
+        .join(Skill, Skill.skill_id == EmployeeSkill.skill_id)
+        .filter(
+            sa.or_(
+                Skill.skill_name.ilike(f"%{normalized_query}%"),
+                Skill.normalized_name.ilike(f"%{normalized_query.lower()}%"),
+            )
+        )
+        .all()
+    )
+
+    by_employee: dict[str, dict] = {}
+    for emp_id, full_name, skill_name in rows:
+        if emp_id not in by_employee:
+            by_employee[emp_id] = {
+                "emp_id": emp_id,
+                "full_name": full_name,
+                "matched_skills": [],
+            }
+        if skill_name not in by_employee[emp_id]["matched_skills"]:
+            by_employee[emp_id]["matched_skills"].append(skill_name)
+
+    ordered_results = sorted(
+        by_employee.values(),
+        key=lambda item: (
+            0 if any(s.lower() == normalized_query.lower() for s in item["matched_skills"]) else 1,
+            0 if any(normalized_query.lower() in s.lower() for s in item["matched_skills"]) else 1,
+            len(item["matched_skills"]) * -1,
+            item["full_name"].lower(),
+        ),
+    )[:safe_limit]
+
+    allocation_flags = _get_project_allocation_flags(
+        db=db,
+        project_id=project_id,
+        emp_ids=[item["emp_id"] for item in ordered_results],
+    )
+
+    response_items: list[SkillSearchEmployeeResult] = []
+    for item in ordered_results:
+        flags = allocation_flags.get(
+            item["emp_id"],
+            {"already_allocated_to_project": False, "allocated_elsewhere": False},
+        )
+        status_text = _allocation_status_from_flags(
+            already_allocated_to_project=flags["already_allocated_to_project"],
+            allocated_elsewhere=flags["allocated_elsewhere"],
+        )
+        response_items.append(
+            SkillSearchEmployeeResult(
+                emp_id=item["emp_id"],
+                full_name=item["full_name"],
+                matched_skills=sorted(item["matched_skills"]),
+                match_type=_determine_match_type(normalized_query, item["matched_skills"]),
+                already_allocated_to_project=flags["already_allocated_to_project"],
+                allocated_elsewhere=flags["allocated_elsewhere"],
+                status=status_text,
+            )
+        )
+
+    return SkillSearchResponse(
+        query=query,
+        limit=safe_limit,
+        results=response_items,
+    )
+
+
+@router.post("/{project_id}/skill-recommendations", response_model=SkillRecommendationResponse)
+def recommend_employees_by_skill(
+    project_id: int,
+    payload: SkillRecommendationRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    roles: List[str] = Depends(get_current_user_roles),
+):
+    _assert_assignment_write_access(roles)
+
+    project_exists = db.query(Project.project_id).filter(Project.project_id == project_id).first()
+    if not project_exists:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    requested_skills = _normalize_skill_tokens(payload.requested_skills)
+    if not requested_skills:
+        raise HTTPException(status_code=400, detail="requested_skills must not be empty")
+
+    safe_required_count = max(1, min(payload.required_count or 5, 50))
+
+    rows = (
+        db.query(
+            Employee.emp_id,
+            Employee.full_name,
+            Skill.skill_name,
+        )
+        .join(EmployeeSkill, EmployeeSkill.emp_id == Employee.emp_id)
+        .join(Skill, Skill.skill_id == EmployeeSkill.skill_id)
+        .all()
+    )
+
+    skills_by_employee: dict[str, dict] = {}
+    for emp_id, full_name, skill_name in rows:
+        if emp_id not in skills_by_employee:
+            skills_by_employee[emp_id] = {
+                "full_name": full_name,
+                "skills": [],
+            }
+        skills_by_employee[emp_id]["skills"].append(skill_name)
+
+    all_emp_ids = list(skills_by_employee.keys())
+    flags = _get_project_allocation_flags(db=db, project_id=project_id, emp_ids=all_emp_ids)
+
+    candidates: list[SkillRecommendationEmployeeResult] = []
+    for emp_id, info in skills_by_employee.items():
+        emp_flags = flags.get(
+            emp_id,
+            {"already_allocated_to_project": False, "allocated_elsewhere": False},
+        )
+        if (
+            not payload.allow_existing_project_assignments
+            and emp_flags["already_allocated_to_project"]
+        ):
+            continue
+
+        score, matched_skills, related_skills, rationale = _score_employee_for_skills(
+            requested_skills=requested_skills,
+            employee_skills=info["skills"],
+        )
+        if score <= 0:
+            continue
+
+        candidates.append(
+            SkillRecommendationEmployeeResult(
+                emp_id=emp_id,
+                full_name=info["full_name"],
+                score=score,
+                matched_skills=matched_skills,
+                related_skills=related_skills,
+                rationale=rationale,
+                already_allocated_to_project=emp_flags["already_allocated_to_project"],
+                allocated_elsewhere=emp_flags["allocated_elsewhere"],
+                status=_allocation_status_from_flags(
+                    already_allocated_to_project=emp_flags["already_allocated_to_project"],
+                    allocated_elsewhere=emp_flags["allocated_elsewhere"],
+                ),
+            )
+        )
+
+    candidates.sort(
+        key=lambda row: (
+            -row.score,
+            len(row.matched_skills) * -1,
+            1 if row.allocated_elsewhere else 0,
+            row.full_name.lower(),
+        )
+    )
+    deterministic_top = candidates[:safe_required_count]
+    reranked, used_ai_rerank = _maybe_ai_rerank(
+        candidates=deterministic_top,
+        use_ai=payload.ai_enabled,
+    )
+
+    return SkillRecommendationResponse(
+        requested_skills=requested_skills,
+        required_count=safe_required_count,
+        used_ai_rerank=used_ai_rerank,
+        results=reranked,
     )

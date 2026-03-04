@@ -3,7 +3,7 @@
  */
 
 import { apiClient } from "./client";
-import { 
+import type {
   Project, 
   ProjectTimeline, 
   EmployeeProjectAssignment, 
@@ -11,7 +11,10 @@ import {
   ProjectUpdateRequest,
   ProjectApprovalRequest,
   AssignmentApprovalRequest,
-  AssignmentCreateRequest
+  AssignmentCreateRequest,
+  SkillSearchResponse,
+  SkillRecommendationRequest,
+  SkillRecommendationResponse,
 } from "../types/projects";
 
 export const projectService = {
@@ -43,6 +46,18 @@ export const projectService = {
     
   getProjectAssignments: (projectId: number) => 
     apiClient.get<EmployeeProjectAssignment[]>(`/projects/projects/${projectId}/assignments`),
+
+  searchEmployeesBySkill: (projectId: number, query: string, limit = 20) =>
+    apiClient.get<SkillSearchResponse>(
+      `/projects/${projectId}/skill-search`,
+      { params: { query, limit } },
+    ),
+
+  recommendEmployeesBySkill: (projectId: number, payload: SkillRecommendationRequest) =>
+    apiClient.post<SkillRecommendationResponse>(
+      `/projects/${projectId}/skill-recommendations`,
+      payload,
+    ),
     
   updateAssignment: (assignmentId: number, data: Partial<EmployeeProjectAssignment>) => 
     apiClient.patch<EmployeeProjectAssignment>(`/projects/assignments/${assignmentId}`, data),

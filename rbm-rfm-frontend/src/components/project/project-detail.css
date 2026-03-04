@@ -632,6 +632,179 @@
   cursor: not-allowed;
 }
 
+.assign-action-group {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.assign-search-btn {
+  background: #0f766e;
+  border-color: #0f766e;
+}
+
+.skill-search-modal {
+  width: min(860px, calc(100vw - 2rem));
+  max-height: calc(100vh - 6rem);
+  overflow: auto;
+}
+
+.skill-search-meta-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.skill-search-results {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 0.75rem;
+}
+
+.skill-search-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.7rem;
+  background: #f8fafc;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.skill-search-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.skill-status-chip {
+  border-radius: 999px;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.status-available {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.status-same-project {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.status-allocated-elsewhere {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.skill-tag-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.skill-tag {
+  border-radius: 999px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 0.7rem;
+  padding: 0.18rem 0.48rem;
+}
+
+.skill-tag-related {
+  border-color: #d1fae5;
+  background: #ecfdf5;
+  color: #065f46;
+}
+
+.skill-search-warning {
+  color: #9a3412;
+  background: #ffedd5;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  font-size: 0.72rem;
+  padding: 0.35rem 0.45rem;
+}
+
+.skill-search-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.recommendation-panel {
+  margin-top: 0.8rem;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 0.8rem;
+}
+
+.recommendation-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.recommendation-panel-header h4 {
+  margin: 0;
+  font-size: 0.92rem;
+  color: #334155;
+}
+
+.recommendation-actions {
+  display: flex;
+  gap: 0.45rem;
+}
+
+.recommendation-card {
+  background: #f8fafc;
+}
+
+.recommendation-rationale {
+  font-size: 0.76rem;
+  color: #334155;
+}
+
+.score-chip {
+  border-radius: 999px;
+  background: #e0e7ff;
+  color: #3730a3;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+}
+
+.skill-search-error {
+  margin-top: 0.45rem;
+  color: #b91c1c;
+  font-size: 0.78rem;
+}
+
+@media (max-width: 768px) {
+  .assign-action-group {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .skill-search-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .recommendation-panel-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .recommendation-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+}
+
 .muted {
   color: #94a3b8;
 }
