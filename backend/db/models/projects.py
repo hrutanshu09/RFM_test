@@ -8,10 +8,15 @@ class Project(Base):
     client_name = Column(String(200))
     project_status = Column(String(30), nullable=False)
     description = Column(Text)
+    approval_status = Column(String(20), nullable=False, server_default="Pending")
+    approved_by_manager_id = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"))
+    approved_at = Column(TIMESTAMP)
+    approval_note = Column(Text)
     created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
 
     __table_args__ = (
         CheckConstraint("project_status IN ('Active', 'On Hold', 'Completed', 'Cancelled')", name="chk_project_status"),
+        CheckConstraint("approval_status IN ('Pending', 'Approved', 'Rejected')", name="chk_project_approval_status"),
     )
 
 class ProjectManager(Base):
@@ -47,6 +52,12 @@ class EmployeeProjectAssignment(Base):
     start_date = Column(Date, nullable=False)
     end_date = Column(Date)
     status = Column(String(20), nullable=False)
+    approval_status = Column(String(20), nullable=False, server_default="Pending")
+    approved_by_manager_id = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"))
+    approved_at = Column(TIMESTAMP)
+    approval_note = Column(Text)
+    approval_requested_by_user_id = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"))
+    approval_requested_at = Column(TIMESTAMP)
     
     # --- New Billing Fields ---
     billing_rate = Column(Numeric(10, 2))
@@ -60,4 +71,8 @@ class EmployeeProjectAssignment(Base):
     __table_args__ = (
         CheckConstraint("allocation_pct >= 0 AND allocation_pct <= 100", name="chk_allocation_pct"),
         CheckConstraint("status IN ('Planned', 'Active', 'Ended')", name="chk_assignment_status"),
+        CheckConstraint(
+            "approval_status IN ('Pending', 'Approved', 'Rejected')",
+            name="chk_assignment_approval_status",
+        ),
     )

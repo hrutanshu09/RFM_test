@@ -36,6 +36,9 @@ const ProjectDetail: React.FC = () => {
   const canUpdateTimeline = isFullAccess;
 
   const [project, setProject] = useState<Project | null>(null);
+  const canApproveAssignments = normalizedRoles.includes('manager');
+  const showApprovalActionColumn = canApproveAssignments;
+  const showLifecycleActionColumn = !normalizedRoles.includes('manager');
   const [assignments, setAssignments] = useState<EmployeeProjectAssignment[]>([]);
   const [timelines, setTimelines] = useState<ProjectTimeline[]>([]);
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
@@ -43,11 +46,13 @@ const ProjectDetail: React.FC = () => {
   const [isSavingAssignment, setIsSavingAssignment] = useState(false);
   const [isSavingStatusChanges, setIsSavingStatusChanges] = useState(false);
   const [isSavingTimeline, setIsSavingTimeline] = useState(false);
+  const [isSavingApproval, setIsSavingApproval] = useState(false);
   const [isAssignFormOpen, setIsAssignFormOpen] = useState(false);
   const [currentAssignmentsPage, setCurrentAssignmentsPage] = useState(1);
   const [employeeSearchInput, setEmployeeSearchInput] = useState('');
   const [isEmployeeDropdownOpen, setIsEmployeeDropdownOpen] = useState(false);
   const employeeDropdownRef = useRef<HTMLDivElement | null>(null);
+  const approvalSectionRef = useRef<HTMLDivElement | null>(null);
   const [timelineForm, setTimelineForm] = useState({
     planned_start_date: '',
     planned_end_date: '',
@@ -55,6 +60,8 @@ const ProjectDetail: React.FC = () => {
     actual_end_date: '',
     reason_for_change: '',
   });
+  const [isProjectRejectModalOpen, setIsProjectRejectModalOpen] = useState(false);
+  const [projectRejectReason, setProjectRejectReason] = useState('');
   const [statusDrafts, setStatusDrafts] = useState<Record<number, 'Planned' | 'Active'>>({});
   const [assignmentForm, setAssignmentForm] = useState({
     emp_id: '',
@@ -67,6 +74,7 @@ const ProjectDetail: React.FC = () => {
     billing_rate: '',
     billing_start_date: '',
     billing_end_date: '',
+    send_for_approval: true,
   });
 
   const pathnameProjectId = location.pathname.split('/').filter(Boolean).pop();
@@ -85,6 +93,7 @@ const ProjectDetail: React.FC = () => {
       billing_rate: '',
       billing_start_date: '',
       billing_end_date: '',
+      send_for_approval: true,
     });
     setEmployeeSearchInput('');
     setIsEmployeeDropdownOpen(false);
@@ -151,6 +160,19 @@ const ProjectDetail: React.FC = () => {
     }
   }, [projectId]);
 
+  useEffect(() => {
+    if (!project) return;
+    const shouldFocusApproval =
+      location.search.includes('focus=approval') || location.hash === '#approval-section';
+    if (!shouldFocusApproval) return;
+
+    const scrollTimer = window.setTimeout(() => {
+      approvalSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 150);
+
+    return () => window.clearTimeout(scrollTimer);
+  }, [location.hash, location.search, project]);
+
   const handleAssignEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!assignmentForm.emp_id || !assignmentForm.start_date) {
@@ -180,6 +202,7 @@ const ProjectDetail: React.FC = () => {
           : undefined,
         billing_start_date: assignmentForm.billing_start_date || undefined,
         billing_end_date: assignmentForm.billing_end_date || undefined,
+        send_for_approval: isFullAccess ? assignmentForm.send_for_approval : undefined,
       };
 
       await projectService.assignEmployee(payload);
@@ -318,6 +341,87 @@ const ProjectDetail: React.FC = () => {
     }
   };
 
+  const handleApproveAssignment = async (assignmentId: number) => {
+    try {
+      await projectService.updateAssignmentApproval(assignmentId, {
+        approval_status: 'Approved',
+      });
+      const refreshed = await projectService.getProjectAssignments(projectId);
+      setAssignments(refreshed.data);
+    } catch (err) {
+      console.error('Failed to approve assignment:', err);
+      alert('Unable to approve assignment');
+    }
+  };
+
+  const handleRejectAssignment = async (assignmentId: number) => {
+    const note = window.prompt('Enter rejection note (required):', '');
+    if (!note || !note.trim()) {
+      alert('Rejection note is required.');
+      return;
+    }
+
+    try {
+      await projectService.updateAssignmentApproval(assignmentId, {
+        approval_status: 'Rejected',
+        approval_note: note.trim(),
+      });
+      const refreshed = await projectService.getProjectAssignments(projectId);
+      setAssignments(refreshed.data);
+    } catch (err) {
+      console.error('Failed to reject assignment:', err);
+      alert('Unable to reject assignment');
+    }
+  };
+
+  const handleApproveProject = async () => {
+    if (!project) return;
+
+    setIsSavingApproval(true);
+    try {
+      await projectService.updateApproval(project.project_id, {
+        approval_status: 'Approved',
+        approval_note: undefined,
+      });
+      await fetchProjectData();
+      setProjectRejectReason('');
+    } catch (err) {
+      console.error('Failed to approve project:', err);
+      alert('Unable to approve project');
+    } finally {
+      setIsSavingApproval(false);
+    }
+  };
+
+  const handleRejectProject = async () => {
+    setIsProjectRejectModalOpen(true);
+  };
+
+  const handleConfirmProjectReject = async () => {
+    if (!project) return;
+
+    if (!projectRejectReason.trim()) {
+      alert('Rejection reason is required.');
+      return;
+    }
+
+    setIsSavingApproval(true);
+    try {
+      await projectService.updateApproval(project.project_id, {
+        approval_status: 'Rejected',
+        approval_note: projectRejectReason.trim(),
+      });
+      await fetchProjectData();
+      setProjectRejectReason('');
+      setIsProjectRejectModalOpen(false);
+    } catch (err) {
+      console.error('Failed to reject project:', err);
+      alert('Unable to reject project');
+    } finally {
+      setIsSavingApproval(false);
+    }
+  };
+
   if (loading) return <div className="loading-state">Loading Project Details...</div>;
   if (Number.isNaN(projectId)) return <div className="error-state">Invalid project route.</div>;
   if (!project) return <div className="error-state">Project not found.</div>;
@@ -347,6 +451,19 @@ const ProjectDetail: React.FC = () => {
           <div className="meta-info">
             <div className="info-item"><strong>Client:</strong> {project.client_name || 'Internal'}</div>
             <div className="info-item"><strong>Manager:</strong> {project.manager_name || 'Not Assigned'}</div>
+            <div className="info-item">
+              <strong>Approval Status:</strong> {project.approval_status}
+            </div>
+            <div className="info-item">
+              <strong>Approved By Manager ID:</strong> {project.approved_by_manager_id ?? '-'}
+            </div>
+            <div className="info-item">
+              <strong>Approval Time:</strong>{' '}
+              {project.approved_at ? new Date(project.approved_at).toLocaleString() : '-'}
+            </div>
+            <div className="info-item">
+              <strong>Approval Note:</strong> {project.approval_note || '-'}
+            </div>
             <div className="date-pair-row">
               <div className="info-item"><strong>Planned Start Date:</strong> {project.planned_start_date ? new Date(project.planned_start_date).toLocaleDateString() : 'Not Set'}</div>
               <div className="info-item"><strong>Actual Start Date:</strong> {project.actual_start_date ? new Date(project.actual_start_date).toLocaleDateString() : 'Not Set'}</div>
@@ -429,6 +546,58 @@ const ProjectDetail: React.FC = () => {
               </div>
             )}
             <div className="info-item"><strong>Created:</strong> {new Date(project.created_at).toLocaleDateString()}</div>
+            <div id="approval-section" ref={approvalSectionRef}>
+            {project.can_current_user_approve ? (
+              <div className="actual-dates-editor">
+                <div className="actual-date-field actual-date-field-full flex gap-3">
+                  {project.approval_status === 'Rejected' ? (
+                    <button
+                      type="button"
+                      className="approval-action-btn approval-action-btn-approve"
+                      onClick={handleApproveProject}
+                      disabled={isSavingApproval}
+                    >
+                      {isSavingApproval ? 'Saving...' : 'Approve Project'}
+                    </button>
+                  ) : project.approval_status === 'Approved' ? (
+                    <button
+                      type="button"
+                      className="approval-action-btn approval-action-btn-reject"
+                      onClick={handleRejectProject}
+                      disabled={isSavingApproval}
+                    >
+                      {isSavingApproval ? 'Saving...' : 'Reject Project'}
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="approval-action-btn approval-action-btn-approve"
+                        onClick={handleApproveProject}
+                        disabled={isSavingApproval}
+                      >
+                        {isSavingApproval ? 'Saving...' : 'Approve Project'}
+                      </button>
+                      <button
+                        type="button"
+                        className="approval-action-btn approval-action-btn-reject"
+                        onClick={handleRejectProject}
+                        disabled={isSavingApproval}
+                      >
+                        {isSavingApproval ? 'Saving...' : 'Reject Project'}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ) : (
+              normalizedRoles.includes('manager') && (
+                <div className="info-item text-amber-700">
+                  You can view this project, but only assigned manager can approve.
+                </div>
+              )
+            )}
+            </div>
           </div>
         </section>
 
@@ -490,13 +659,22 @@ const ProjectDetail: React.FC = () => {
                     </>
                   )}
                   <th>Status</th>
-                  <th>Action</th>
+                  <th>Approval Status</th>
+                  {showApprovalActionColumn && <th>Approval Action</th>}
+                  {showLifecycleActionColumn && <th>Action</th>}
                 </tr>
               </thead>
               <tbody>
                 {paginatedAssignments.map((asgn) => (
                   <tr key={asgn.assignment_id}>
-                    <td>{asgn.emp_id}</td>
+                    <td>
+                      <div className="resource-id-block">
+                        <div className="resource-id-text">{asgn.emp_id}</div>
+                        <div className="resource-name-text">
+                          {employees.find((emp) => emp.emp_id === asgn.emp_id)?.full_name || 'Unknown Resource'}
+                        </div>
+                      </div>
+                    </td>
                     <td>{asgn.role || 'General Resource'}</td>
                     <td>{asgn.allocation_pct}%</td>
                     <td>{new Date(asgn.start_date).toLocaleDateString()}</td>
@@ -537,24 +715,61 @@ const ProjectDetail: React.FC = () => {
                         asgn.status
                       )}
                     </td>
-                    <td>
-                      {canEditAssignmentStatus && asgn.status !== 'Ended' ? (
-                        <button
-                          className="btn-inline"
-                          onClick={() => handleUnassign(asgn.assignment_id)}
-                          type="button"
-                        >
-                          Unassign
-                        </button>
-                      ) : (
-                        <span className="muted">-</span>
-                      )}
-                    </td>
+                    <td>{asgn.approval_status || 'Pending'}</td>
+                    {showApprovalActionColumn && (
+                      <td>
+                        {canApproveAssignments && asgn.can_current_user_approve ? (
+                          <div className="assignment-approval-actions">
+                            <button
+                              className="approval-chip approval-chip-approve"
+                              onClick={() => handleApproveAssignment(asgn.assignment_id)}
+                              type="button"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              className="approval-chip approval-chip-reject"
+                              onClick={() => handleRejectAssignment(asgn.assignment_id)}
+                              type="button"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="muted">-</span>
+                        )}
+                      </td>
+                    )}
+                    {showLifecycleActionColumn && (
+                      <td>
+                        {canEditAssignmentStatus && asgn.status !== 'Ended' ? (
+                          <button
+                            className="btn-inline"
+                            onClick={() => handleUnassign(asgn.assignment_id)}
+                            type="button"
+                          >
+                            Unassign
+                          </button>
+                        ) : (
+                          <span className="muted">-</span>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
                 {assignments.length === 0 && (
                   <tr>
-                    <td colSpan={isFullAccess ? 12 : 8} className="empty-row">No resources assigned yet.</td>
+                    <td
+                      colSpan={
+                        8 +
+                        (isFullAccess ? 4 : 0) +
+                        (showApprovalActionColumn ? 1 : 0) +
+                        (showLifecycleActionColumn ? 1 : 0)
+                      }
+                      className="empty-row"
+                    >
+                      No resources assigned yet.
+                    </td>
                   </tr>
                 )}
               </tbody>
@@ -726,6 +941,24 @@ const ProjectDetail: React.FC = () => {
               </div>
 
               {isFullAccess && (
+                <div className="field-with-help">
+                  <label>Send For Manager Approval</label>
+                  <select
+                    value={assignmentForm.send_for_approval ? 'Yes' : 'No'}
+                    onChange={(e) =>
+                      setAssignmentForm({
+                        ...assignmentForm,
+                        send_for_approval: e.target.value === 'Yes',
+                      })
+                    }
+                  >
+                    <option value="Yes">Yes</option>
+                    <option value="No">No</option>
+                  </select>
+                </div>
+              )}
+
+              {isFullAccess && (
                 <>
                   <div className="field-with-help">
                     <label>Billable Status</label>
@@ -796,6 +1029,53 @@ const ProjectDetail: React.FC = () => {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {isProjectRejectModalOpen && (
+        <div
+          className="project-reject-modal-overlay"
+          onClick={() => {
+            if (!isSavingApproval) setIsProjectRejectModalOpen(false);
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="project-reject-title"
+        >
+          <div className="project-reject-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="project-reject-modal-header">
+              <h3 id="project-reject-title">Reject Project</h3>
+              <p>Please provide a clear reason for rejection.</p>
+            </div>
+            <div className="field-with-help project-reject-field">
+              <label>Reason for rejection</label>
+              <textarea
+                className="project-reject-textarea"
+                value={projectRejectReason}
+                onChange={(e) => setProjectRejectReason(e.target.value)}
+                placeholder="Enter reason for rejecting this project"
+                rows={4}
+              />
+            </div>
+            <div className="assignment-form-actions">
+              <button
+                type="button"
+                className="secondary-btn"
+                disabled={isSavingApproval}
+                onClick={() => setIsProjectRejectModalOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="approval-action-btn approval-action-btn-reject"
+                disabled={isSavingApproval}
+                onClick={handleConfirmProjectReject}
+              >
+                {isSavingApproval ? 'Saving...' : 'Confirm Reject'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

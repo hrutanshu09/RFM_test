@@ -9,6 +9,8 @@ import {
   EmployeeProjectAssignment, 
   ProjectCreateRequest, 
   ProjectUpdateRequest,
+  ProjectApprovalRequest,
+  AssignmentApprovalRequest,
   AssignmentCreateRequest
 } from "../types/projects";
 
@@ -26,6 +28,9 @@ export const projectService = {
   updateProject: (projectId: number, data: ProjectUpdateRequest) => 
     apiClient.patch<Project>(`/projects/${projectId}`, data),
 
+  updateApproval: (projectId: number, data: ProjectApprovalRequest) =>
+    apiClient.patch<Project>(`/projects/${projectId}/approval`, data),
+
   // Timelines
   createTimeline: (data: Partial<ProjectTimeline>) => 
     apiClient.post<ProjectTimeline>("/projects/timelines", data),
@@ -41,4 +46,7 @@ export const projectService = {
     
   updateAssignment: (assignmentId: number, data: Partial<EmployeeProjectAssignment>) => 
     apiClient.patch<EmployeeProjectAssignment>(`/projects/assignments/${assignmentId}`, data),
+
+  updateAssignmentApproval: (assignmentId: number, data: AssignmentApprovalRequest) =>
+    apiClient.patch<EmployeeProjectAssignment>(`/projects/assignments/${assignmentId}/approval`, data),
 };

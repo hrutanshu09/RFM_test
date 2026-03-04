@@ -8,6 +8,11 @@ export interface Project {
   client_name?: string;
   project_status: 'Active' | 'On Hold' | 'Completed' | 'Cancelled';
   description?: string;
+  approval_status: 'Pending' | 'Approved' | 'Rejected';
+  approved_by_manager_id?: number | null;
+  approved_at?: string | null;
+  approval_note?: string | null;
+  can_current_user_approve?: boolean;
   created_at: string;
   manager_name?: string;
   manager_user_id?: number;
@@ -38,6 +43,13 @@ export interface EmployeeProjectAssignment {
   start_date: string;
   end_date?: string;
   status: 'Planned' | 'Active' | 'Ended';
+  approval_status?: 'Pending' | 'Approved' | 'Rejected';
+  approved_by_manager_id?: number | null;
+  approved_at?: string | null;
+  approval_note?: string | null;
+  approval_requested_by_user_id?: number | null;
+  approval_requested_at?: string | null;
+  can_current_user_approve?: boolean;
   
   // --- New Billing & Metadata Fields ---
   billing_rate?: number; // Will be null for non-admins due to masking
@@ -60,7 +72,17 @@ export interface ProjectManagerAssignment {
 }
 
 // Request Types for Mutations
-export type ProjectCreateRequest = Omit<Project, 'project_id' | 'created_at'> & {
+export type ProjectCreateRequest = Omit<
+  Project,
+  | 'project_id'
+  | 'created_at'
+  | 'approval_status'
+  | 'approved_by_manager_id'
+  | 'approved_at'
+  | 'approval_note'
+  | 'can_current_user_approve'
+  | 'manager_name'
+> & {
   manager_user_id?: number;
   planned_start_date?: string;
   planned_end_date?: string;
@@ -70,14 +92,27 @@ export type ProjectUpdateRequest = Partial<ProjectCreateRequest> & {
   actual_end_date?: string;
   reason_for_change?: string;
 };
-export type AssignmentCreateRequest = Omit<EmployeeProjectAssignment, 'assignment_id'>;
 
-import { apiClient } from "./client";
+export interface ProjectApprovalRequest {
+  approval_status: 'Approved' | 'Rejected';
+  approval_note?: string;
+}
 
-export const createProject = async (
-  payload: ProjectCreateRequest,
-): Promise<Project> => {
-  const res = await apiClient.post<Project>("/projects/", payload);
-  return res.data;
+export interface AssignmentApprovalRequest {
+  approval_status: 'Approved' | 'Rejected';
+  approval_note?: string;
+}
+export type AssignmentCreateRequest = Omit<
+  EmployeeProjectAssignment,
+  | 'assignment_id'
+  | 'approval_status'
+  | 'approved_by_manager_id'
+  | 'approved_at'
+  | 'approval_note'
+  | 'approval_requested_by_user_id'
+  | 'approval_requested_at'
+  | 'can_current_user_approve'
+> & {
+  send_for_approval?: boolean;
 };
 

@@ -3,15 +3,18 @@ from sqlalchemy.orm import Session
 import sqlalchemy as sa
 from typing import List
 import json
+from datetime import datetime, timezone
 
 from db.session import get_db
 from db.models.projects import Project, ProjectManager, ProjectTimeline, EmployeeProjectAssignment
 from db.models.audit_log import AuditLog
 from schemas.projects import (
     ProjectCreate, ProjectUpdate, ProjectResponse,
+    ProjectApprovalRequest,
     ProjectManagerCreate, ProjectManagerUpdate, ProjectManagerResponse,
     ProjectTimelineCreate, ProjectTimelineUpdate, ProjectTimelineResponse,
-    EmployeeProjectAssignmentCreate, EmployeeProjectAssignmentUpdate, EmployeeProjectAssignmentResponse
+    EmployeeProjectAssignmentCreate, EmployeeProjectAssignmentUpdate, EmployeeProjectAssignmentResponse,
+    AssignmentApprovalRequest,
 )
 from utils.dependencies import get_current_user, get_current_user_roles
 from db.models.auth import User
@@ -41,6 +44,54 @@ def _assert_full_access(roles: List[str]) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied. Admin or Owner role required.",
         )
+
+
+def _is_manager_role(roles: List[str]) -> bool:
+    return "manager" in _normalized_roles(roles)
+
+
+def _is_manager_assigned_to_project(db: Session, project_id: int, user_id: int) -> bool:
+    return (
+        db.query(ProjectManager.id)
+        .filter(
+            ProjectManager.project_id == project_id,
+            ProjectManager.manager_user_id == user_id,
+            ProjectManager.is_active == True,
+        )
+        .first()
+        is not None
+    )
+
+
+def _build_project_response_dict(
+    project: Project,
+    manager_name: str | None,
+    manager_user_id: int | None,
+    planned_start_date,
+    planned_end_date,
+    actual_start_date,
+    actual_end_date,
+    can_current_user_approve: bool = False,
+) -> dict:
+    project_dict = {c.name: getattr(project, c.name) for c in project.__table__.columns}
+    project_dict["manager_name"] = manager_name
+    project_dict["manager_user_id"] = manager_user_id
+    project_dict["planned_start_date"] = planned_start_date
+    project_dict["planned_end_date"] = planned_end_date
+    project_dict["actual_start_date"] = actual_start_date
+    project_dict["actual_end_date"] = actual_end_date
+    project_dict["can_current_user_approve"] = can_current_user_approve
+    return project_dict
+
+
+def _build_assignment_response_dict(
+    assignment: EmployeeProjectAssignment,
+    can_current_user_approve: bool = False,
+) -> dict:
+    assignment_dict = {c.name: getattr(assignment, c.name) for c in assignment.__table__.columns}
+    assignment_dict["can_current_user_approve"] = can_current_user_approve
+    return assignment_dict
+
 
 def log_audit(db: Session, user_id: int, action: str, entity_name: str, entity_id: int, old_val=None, new_val=None):
     """Helper to record actions in the AuditLog table."""
@@ -100,6 +151,10 @@ def create_project(
             "actual_end_date",
         }
     )
+    proj_data["approval_status"] = "Pending"
+    proj_data["approved_by_manager_id"] = None
+    proj_data["approved_at"] = None
+    proj_data["approval_note"] = None
     db_project = Project(**proj_data)
     db.add(db_project)
     db.flush()                         # get project_id now
@@ -135,7 +190,11 @@ def create_project(
     return db_project
 
 @router.get("/", response_model=List[ProjectResponse])
-def list_projects(db: Session = Depends(get_db)):
+def list_projects(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    roles: List[str] = Depends(get_current_user_roles),
+):
     # Join with active manager, and current timeline metadata
     results = db.query(
         Project,
@@ -156,20 +215,33 @@ def list_projects(db: Session = Depends(get_db)):
     ).all()
     
     projects_list = []
+    manager_role = _is_manager_role(roles)
     for p, manager_name, manager_user_id, planned_start_date, planned_end_date, actual_start_date, actual_end_date in results:
-        project_dict = {c.name: getattr(p, c.name) for c in p.__table__.columns}
-        project_dict["manager_name"] = manager_name
-        project_dict["manager_user_id"] = manager_user_id
-        project_dict["planned_start_date"] = planned_start_date
-        project_dict["planned_end_date"] = planned_end_date
-        project_dict["actual_start_date"] = actual_start_date
-        project_dict["actual_end_date"] = actual_end_date
-        projects_list.append(project_dict)
+        can_current_user_approve = bool(
+            manager_role and manager_user_id == current_user.user_id
+        )
+        projects_list.append(
+            _build_project_response_dict(
+                project=p,
+                manager_name=manager_name,
+                manager_user_id=manager_user_id,
+                planned_start_date=planned_start_date,
+                planned_end_date=planned_end_date,
+                actual_start_date=actual_start_date,
+                actual_end_date=actual_end_date,
+                can_current_user_approve=can_current_user_approve,
+            )
+        )
         
     return projects_list
 
 @router.get("/{project_id}", response_model=ProjectResponse)
-def get_project(project_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def get_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    roles: List[str] = Depends(get_current_user_roles),
+):
     result = db.query(
         Project,
         AuthUser.username.label("manager_name"),
@@ -194,14 +266,20 @@ def get_project(project_id: int, db: Session = Depends(get_db), current_user: Us
         raise HTTPException(status_code=404, detail="Project not found")
 
     project, manager_name, manager_user_id, planned_start_date, planned_end_date, actual_start_date, actual_end_date = result
-    project_dict = {c.name: getattr(project, c.name) for c in project.__table__.columns}
-    project_dict["manager_name"] = manager_name
-    project_dict["manager_user_id"] = manager_user_id
-    project_dict["planned_start_date"] = planned_start_date
-    project_dict["planned_end_date"] = planned_end_date
-    project_dict["actual_start_date"] = actual_start_date
-    project_dict["actual_end_date"] = actual_end_date
-    return project_dict
+    can_current_user_approve = bool(
+        _is_manager_role(roles)
+        and _is_manager_assigned_to_project(db, project_id, current_user.user_id)
+    )
+    return _build_project_response_dict(
+        project=project,
+        manager_name=manager_name,
+        manager_user_id=manager_user_id,
+        planned_start_date=planned_start_date,
+        planned_end_date=planned_end_date,
+        actual_start_date=actual_start_date,
+        actual_end_date=actual_end_date,
+        can_current_user_approve=can_current_user_approve,
+    )
 
 @router.patch("/{project_id}", response_model=ProjectResponse)
 def update_project(
@@ -362,7 +440,62 @@ def update_project(
 
     log_audit(db, current_user.user_id, "UPDATE", "Project", project_id, old_val=old_data, new_val=update_data)
     db.commit()
-    return get_project(project_id, db, current_user)
+    return get_project(project_id, db, current_user, roles)
+
+
+@router.patch("/{project_id}/approval", response_model=ProjectResponse)
+def update_project_approval(
+    project_id: int,
+    payload: ProjectApprovalRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    roles: List[str] = Depends(get_current_user_roles),
+):
+    if not _is_manager_role(roles):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Manager role required.",
+        )
+
+    db_project = db.query(Project).filter(Project.project_id == project_id).first()
+    if not db_project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if not _is_manager_assigned_to_project(db, project_id, current_user.user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. You are not the assigned manager for this project.",
+        )
+
+    old_data = {
+        "approval_status": db_project.approval_status,
+        "approved_by_manager_id": db_project.approved_by_manager_id,
+        "approved_at": db_project.approved_at,
+        "approval_note": db_project.approval_note,
+    }
+
+    db_project.approval_status = payload.approval_status
+    db_project.approved_by_manager_id = current_user.user_id
+    db_project.approved_at = datetime.now(timezone.utc)
+    db_project.approval_note = payload.approval_note
+
+    new_data = {
+        "approval_status": db_project.approval_status,
+        "approved_by_manager_id": db_project.approved_by_manager_id,
+        "approved_at": db_project.approved_at,
+        "approval_note": db_project.approval_note,
+    }
+    log_audit(
+        db=db,
+        user_id=current_user.user_id,
+        action="APPROVAL_UPDATE",
+        entity_name="Project",
+        entity_id=project_id,
+        old_val=old_data,
+        new_val=new_data,
+    )
+    db.commit()
+    return get_project(project_id, db, current_user, roles)
 
 # --- 2. Project Manager Assignments (REINSTATED) ---
 
@@ -464,6 +597,7 @@ def assign_employee_to_project(
         )
 
     assign_data = assignment.model_dump()
+    send_for_approval = bool(assign_data.pop("send_for_approval", True))
     full_access = _has_full_access(roles)
     
     if not full_access:
@@ -472,6 +606,21 @@ def assign_employee_to_project(
         assign_data['billing_end_date'] = None
         assign_data['billing_project_id'] = None
         assign_data['is_billable'] = False
+
+    if full_access and send_for_approval:
+        assign_data["approval_status"] = "Pending"
+        assign_data["approved_by_manager_id"] = None
+        assign_data["approved_at"] = None
+        assign_data["approval_note"] = None
+        assign_data["approval_requested_by_user_id"] = current_user.user_id
+        assign_data["approval_requested_at"] = datetime.now(timezone.utc)
+    else:
+        assign_data["approval_status"] = "Approved"
+        assign_data["approved_by_manager_id"] = current_user.user_id
+        assign_data["approved_at"] = datetime.now(timezone.utc)
+        assign_data["approval_note"] = "Auto-approved on assignment create"
+        assign_data["approval_requested_by_user_id"] = current_user.user_id
+        assign_data["approval_requested_at"] = datetime.now(timezone.utc)
 
     db_asgn = EmployeeProjectAssignment(**assign_data)
     db.add(db_asgn)
@@ -491,15 +640,30 @@ def list_project_assignments(
 ):
     assignments = db.query(EmployeeProjectAssignment).filter(
         EmployeeProjectAssignment.project_id == project_id
-    ).all()
+    ).order_by(EmployeeProjectAssignment.assignment_id.asc()).all()
     
     full_access = _has_full_access(roles)
-    
-    if not full_access:
-        for a in assignments:
-            a.billing_rate = None
-            
-    return assignments
+    manager_can_approve_project = _is_manager_role(roles) and _is_manager_assigned_to_project(
+        db,
+        project_id,
+        current_user.user_id,
+    )
+
+    response_rows: list[dict] = []
+    for assignment in assignments:
+        if not full_access:
+            assignment.billing_rate = None
+        can_current_user_approve = bool(
+            manager_can_approve_project and assignment.approval_status == "Pending"
+        )
+        response_rows.append(
+            _build_assignment_response_dict(
+                assignment=assignment,
+                can_current_user_approve=can_current_user_approve,
+            )
+        )
+
+    return response_rows
 
 @router.patch("/assignments/{assignment_id}", response_model=EmployeeProjectAssignmentResponse)
 def update_project_assignment(
@@ -560,3 +724,75 @@ def update_project_assignment(
     if not full_access:
         db_assignment.billing_rate = None
     return db_assignment
+
+
+@router.patch("/assignments/{assignment_id}/approval", response_model=EmployeeProjectAssignmentResponse)
+def update_assignment_approval(
+    assignment_id: int,
+    payload: AssignmentApprovalRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    roles: List[str] = Depends(get_current_user_roles),
+):
+    if not _is_manager_role(roles):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Manager role required.",
+        )
+
+    db_assignment = db.query(EmployeeProjectAssignment).filter(
+        EmployeeProjectAssignment.assignment_id == assignment_id
+    ).first()
+    if not db_assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    if not _is_manager_assigned_to_project(db, db_assignment.project_id, current_user.user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. You are not the assigned manager for this project.",
+        )
+
+    old_data = {
+        "approval_status": db_assignment.approval_status,
+        "approved_by_manager_id": db_assignment.approved_by_manager_id,
+        "approved_at": db_assignment.approved_at,
+        "approval_note": db_assignment.approval_note,
+        "status": db_assignment.status,
+        "end_date": db_assignment.end_date,
+    }
+
+    db_assignment.approval_status = payload.approval_status
+    db_assignment.approved_by_manager_id = current_user.user_id
+    db_assignment.approved_at = datetime.now(timezone.utc)
+    db_assignment.approval_note = payload.approval_note
+
+    if payload.approval_status == "Rejected":
+        db_assignment.status = "Ended"
+        if db_assignment.end_date is None:
+            db_assignment.end_date = sa.func.current_date()
+
+    new_data = {
+        "approval_status": db_assignment.approval_status,
+        "approved_by_manager_id": db_assignment.approved_by_manager_id,
+        "approved_at": db_assignment.approved_at,
+        "approval_note": db_assignment.approval_note,
+        "status": db_assignment.status,
+        "end_date": db_assignment.end_date,
+    }
+    log_audit(
+        db=db,
+        user_id=current_user.user_id,
+        action="ASGN_APPROVAL_UPD",
+        entity_name="EmployeeProjectAssignment",
+        entity_id=assignment_id,
+        old_val=old_data,
+        new_val=new_data,
+    )
+    db.commit()
+    db.refresh(db_assignment)
+
+    can_current_user_approve = db_assignment.approval_status == "Pending"
+    return _build_assignment_response_dict(
+        assignment=db_assignment,
+        can_current_user_approve=can_current_user_approve,
+    )

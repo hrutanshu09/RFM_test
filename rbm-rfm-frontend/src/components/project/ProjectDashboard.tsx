@@ -19,6 +19,7 @@ const ProjectDashboard: React.FC = () => {
   const { user } = useAuth();
   const normalizedRoles = (user?.roles || []).map((role) => role.toLowerCase());
   const isFullAccess = normalizedRoles.includes('admin') || normalizedRoles.includes('owner');
+  const isManagerUser = normalizedRoles.includes('manager');
   const roleBasePath = normalizedRoles.includes('owner')
     ? '/owner'
     : normalizedRoles.includes('admin')
@@ -74,6 +75,12 @@ const ProjectDashboard: React.FC = () => {
     if (status === 'Completed') return 'bg-blue-100 text-blue-700';
     if (status === 'Cancelled') return 'bg-red-100 text-red-700';
     return 'bg-gray-100 text-gray-700';
+  };
+
+  const getApprovalBadgeClass = (approvalStatus: Project['approval_status']) => {
+    if (approvalStatus === 'Approved') return 'bg-green-100 text-green-700';
+    if (approvalStatus === 'Rejected') return 'bg-red-100 text-red-700';
+    return 'bg-amber-100 text-amber-700';
   };
 
   return (
@@ -149,7 +156,7 @@ const ProjectDashboard: React.FC = () => {
           <div className="min-h-[650px] flex flex-col">
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
               {paginatedProjects.map((project) => (
-                <div key={project.project_id} className="bg-white p-6 rounded-lg shadow-sm border hover:shadow-md transition">
+                <div key={project.project_id} className="bg-white p-6 rounded-lg shadow-sm border hover:shadow-md transition flex flex-col min-h-[260px]">
                   <div className="flex justify-between items-start">
                     <h3 className="text-lg font-semibold text-blue-900">{project.project_name}</h3>
                     <span
@@ -166,23 +173,39 @@ const ProjectDashboard: React.FC = () => {
                     <p className="text-gray-500 text-sm">
                       <strong>Manager:</strong> {project.manager_name || 'Not Assigned'}
                     </p>
+                    <p className="text-gray-500 text-sm">
+                      <strong>Approval:</strong>{' '}
+                      <span className={`text-xs px-2 py-1 rounded ${getApprovalBadgeClass(project.approval_status)}`}>
+                        {project.approval_status}
+                      </span>
+                    </p>
                   </div>
 
-                  <div className="mt-6 flex items-center justify-end gap-4">
+                  <div className="mt-auto pt-6 flex items-center justify-end gap-4">
+                    {isManagerUser && project.can_current_user_approve && (
+                      <button
+                        onClick={() =>
+                          navigate(`${roleBasePath}/projects/${project.project_id}?focus=approval#approval-section`)
+                        }
+                        className="text-green-700 text-sm font-semibold hover:underline whitespace-nowrap"
+                      >
+                        Approve Project
+                      </button>
+                    )}
                     {isFullAccess && (
                       <button
                         onClick={() => {
                           setSelectedProject(project);
                           setIsModalOpen(true);
                         }}
-                        className="text-slate-600 text-sm font-medium hover:underline"
+                        className="text-slate-600 text-sm font-medium hover:underline whitespace-nowrap"
                       >
                         Edit
                       </button>
                     )}
                     <button
                       onClick={() => navigate(`${roleBasePath}/projects/${project.project_id}`)}
-                      className="text-blue-600 text-sm font-medium hover:underline"
+                      className="text-blue-600 text-sm font-medium hover:underline whitespace-nowrap"
                     >
                       View Details
                     </button>

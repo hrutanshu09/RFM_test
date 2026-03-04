@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -40,6 +40,11 @@ class ProjectResponse(BaseModel):
     created_at: Optional[datetime] = None
     manager_name: Optional[str] = None
     manager_user_id: Optional[int] = None
+    approval_status: Literal["Pending", "Approved", "Rejected"] = "Pending"
+    approved_by_manager_id: Optional[int] = None
+    approved_at: Optional[datetime] = None
+    approval_note: Optional[str] = None
+    can_current_user_approve: bool = False
     planned_start_date: Optional[date] = None
     planned_end_date: Optional[date] = None
     actual_start_date: Optional[date] = None
@@ -72,6 +77,11 @@ class ProjectManagerResponse(BaseModel):
     is_active: bool
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ProjectApprovalRequest(BaseModel):
+    approval_status: Literal["Approved", "Rejected"]
+    approval_note: Optional[str] = None
 
 # --- Project Timeline Schemas ---
 class ProjectTimelineCreate(BaseModel):
@@ -123,6 +133,7 @@ class EmployeeProjectAssignmentCreate(BaseModel):
     timesheet_required: bool = True
     client_pm_name: Optional[str] = Field(None, max_length=200)
     billing_project_id: Optional[int] = None
+    send_for_approval: bool = True
 
 class EmployeeProjectAssignmentUpdate(BaseModel):
     role: Optional[str] = Field(None, max_length=100)
@@ -148,6 +159,13 @@ class EmployeeProjectAssignmentResponse(BaseModel):
     start_date: date
     end_date: Optional[date] = None
     status: str
+    approval_status: Literal["Pending", "Approved", "Rejected"] = "Pending"
+    approved_by_manager_id: Optional[int] = None
+    approved_at: Optional[datetime] = None
+    approval_note: Optional[str] = None
+    approval_requested_by_user_id: Optional[int] = None
+    approval_requested_at: Optional[datetime] = None
+    can_current_user_approve: bool = False
 
     billing_rate: Optional[Decimal] = None
     billing_start_date: Optional[date] = None
@@ -158,3 +176,8 @@ class EmployeeProjectAssignmentResponse(BaseModel):
     billing_project_id: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AssignmentApprovalRequest(BaseModel):
+    approval_status: Literal["Approved", "Rejected"]
+    approval_note: Optional[str] = None

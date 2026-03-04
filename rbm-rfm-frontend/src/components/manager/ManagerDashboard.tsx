@@ -12,6 +12,7 @@ import MyRequisitions from "./MyRequisitions";
 import RequisitionAudit from "./RequisitionAudit";
 import ProjectDashboard from "../project/ProjectDashboard";
 import ProjectDetail from "../project/ProjectDetail";
+import ProjectApprovalPage from "../project/ProjectApprovalPage";
 import { AlertTriangle, Clock, TrendingUp } from "lucide-react";
 import { managerDashboardService } from "../../api/managerDashboardService";
 import { ManagerDashboardMetrics } from "../../types/managerDashboard";
@@ -299,6 +300,8 @@ const ManagerDashboard: React.FC = () => {
             </div>
           ) : location.pathname === "/manager/projects" ? (
             <ProjectDashboard />
+          ) : location.pathname.match(/^\/manager\/projects\/\d+\/approval$/) ? (
+            <ProjectApprovalPage />
           ) : location.pathname.startsWith("/manager/projects/") ? (
             <ProjectDetail />
           ) : location.pathname === "/manager/requisition-audit" ? (
