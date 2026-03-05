@@ -1,0 +1,51 @@
+{
+  "employee_id": "UPLOAD-EMP-001",
+  "resume_id": "10089434",
+  "claimed_skills": [],
+  "projects": [
+    {
+      "name": "INFORMATION TECHNOLOGY TECHNICIAN I",
+      "date_range": "Unknown",
+      "description": "Summary Versatile Systems Administrator possessing superior troubleshooting skills for networking issues, end user problems, and network security. Experienced in server management, systems analysis, and offering in-depth understanding of IT infrastructure areas. Detail-oriented, independent, and focused on taking a systematic approach to solving complex problems. Demonstrated exceptional technical knowledge and skills while working with various teams to achieve shared goals and objectives. Highlights Active Directory Group Policy Objects PowerShell and VBScript Microsoft Exchange VMWare experience New technology and product research Office 365 and Azure Storage management Enterprise backup management Disaster recovery Experience Information Technology Technician I Aug 2007 to Current Compa",
+      "skills_used": [
+        "C++",
+        "Java"
+      ],
+      "evidence": "INFORMATION TECHNOLOGY TECHNICIAN I\nSummary\nVersatile Systems Administrator possessing superior troubleshooting skills for networking issues, end user problems, and network security.\nExperienced in server management, systems analysis, and offering in-depth understanding of IT infrastructure areas. D"
+    }
+  ],
+  "skill_assessment": [
+    {
+      "skill": "C++",
+      "normalized_skill_id": "c++",
+      "claimed": false,
+      "project_count": 1,
+      "recent_usage": false,
+      "proficiency_score": 20,
+      "level": "Basic",
+      "confidence": 0.6,
+      "evidence_snippets": [
+        "INFORMATION TECHNOLOGY TECHNICIAN I\nSummary\nVersatile Systems Administrator possessing superior troubleshooting skills for networking issues, end user problems, and network security.\nExperienced in se"
+      ]
+    },
+    {
+      "skill": "Java",
+      "normalized_skill_id": "java",
+      "claimed": false,
+      "project_count": 1,
+      "recent_usage": false,
+      "proficiency_score": 20,
+      "level": "Basic",
+      "confidence": 0.6,
+      "evidence_snippets": [
+        "INFORMATION TECHNOLOGY TECHNICIAN I\nSummary\nVersatile Systems Administrator possessing superior troubleshooting skills for networking issues, end user problems, and network security.\nExperienced in se"
+      ]
+    }
+  ],
+  "analysis_metadata": {
+    "analysis_version": "v1",
+    "analyzed_at": "2026-03-05T06:12:06Z",
+    "model_or_pipeline": "hybrid_rules_plus_llm",
+    "status": "completed"
+  }
+}

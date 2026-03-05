@@ -1,0 +1,295 @@
+{
+  "employee_id": "UPLOAD-EMP-001",
+  "resume_id": "computer-science-internship-resume-example",
+  "employee_profile": {
+    "name": "ZEKE\u00a0BOLIVER",
+    "address": null,
+    "phone_number": "(123) 456-7890",
+    "email": "zeke.boliver@email.com",
+    "linkedin": null,
+    "github": null,
+    "date_of_birth": null,
+    "education": [
+      {
+        "headline": "B.S. - Computer Science University of Texas September 2017 - May 2021 Austin, TX GPA: 3.4 RELEVANT COURSES Data Structures Algorithm Design",
+        "date_range": "2017 - May 2021",
+        "details": "Computer Science University of Texas September 2017 - May 2021 Austin, TX GPA: 3.4 RELEVANT COURSES Data Structures Algorithm Design Database Management Systems Computer Vision Software Design Methodology"
+      }
+    ],
+    "experiences": [
+      {
+        "headline": "Technician - University of Texas Help Desk",
+        "date_range": "January 2018 - May 2021 Austin, TX",
+        "details": "\u00b7 Worked 18 hours aweek in the campus' largest computer lab to troubleshoot students' issues with network connectivity, printers, and related technology \u00b7 Streamlined the process of responding to issues by implementing aticketing system and grouping similar issues together to reduce resources and time to complete inbound requests by 2 hours \u00b7 Answered phone calls, messages, and chatroom, and assisted with scheduling complex issues that required appointments \u00b7 Trained 3 freshmen help desk technicians in procedures, work ticketing system, and con\ufb02ict management \u00b7 Performed software updates and routine maintenance on computers, printers, and copy machines"
+      },
+      {
+        "headline": "Research Assistant - UT Computer Science Institute",
+        "date_range": "April 2015 - January 2018 Austin, TX",
+        "details": "\u00b7 Developed an interactive web app for Trial, an app that streamlines the process of literature review for researchers in the University of Texas School of Medicine \u00b7 Researched and tracked potential programming solutions, and documented processes and \ufb01xes \u00b7 Built ascraper in Python to structure data on 5K+ publications, and used the Natural Language Toolkit library in Python for a more robust search of abstracts for research publications \u00b7 Provided ongoing app support to identify, \ufb01x, and test bug issues, and surveyed user feedback to implement changes that increased user satisfaction by 17% \u00b7 Collaborated with undergraduate and graduate computer science students to determine design, app interaction, and enhancements"
+      }
+    ]
+  },
+  "employee_profile_debug": {
+    "mode": "llm_with_field_fallback",
+    "llm_status": "failed",
+    "llm_error": "Gemini returned invalid/empty profile payload.",
+    "section_keys": [
+      "education",
+      "experience",
+      "other",
+      "skills",
+      "summary"
+    ],
+    "field_confidence": {
+      "name": {
+        "source": "rules_fallback",
+        "score": 0.65
+      },
+      "address": {
+        "source": "missing",
+        "score": 0.0
+      },
+      "phone_number": {
+        "source": "rules_fallback",
+        "score": 0.65
+      },
+      "email": {
+        "source": "rules_fallback",
+        "score": 0.65
+      },
+      "linkedin": {
+        "source": "missing",
+        "score": 0.0
+      },
+      "github": {
+        "source": "missing",
+        "score": 0.0
+      },
+      "date_of_birth": {
+        "source": "missing",
+        "score": 0.0
+      },
+      "education": {
+        "source": "llm_plus_rules",
+        "score": 0.6
+      },
+      "experiences": {
+        "source": "llm_plus_rules",
+        "score": 0.6
+      }
+    },
+    "llm_raw_text": ""
+  },
+  "claimed_skills": [
+    {
+      "skill": "Css",
+      "normalized_skill_id": "css",
+      "evidence": "JavaScript (Angular) HTML/ CSS Python (Django) SQL (PostgreSQL, Oracle) REST APIs (GraphQL) Git"
+    },
+    {
+      "skill": "Django",
+      "normalized_skill_id": "django",
+      "evidence": "JavaScript (Angular) HTML/ CSS Python (Django) SQL (PostgreSQL, Oracle) REST APIs (GraphQL) Git"
+    },
+    {
+      "skill": "Git",
+      "normalized_skill_id": "git",
+      "evidence": "JavaScript (Angular) HTML/ CSS Python (Django) SQL (PostgreSQL, Oracle) REST APIs (GraphQL) Git"
+    },
+    {
+      "skill": "Html",
+      "normalized_skill_id": "html",
+      "evidence": "JavaScript (Angular) HTML/ CSS Python (Django) SQL (PostgreSQL, Oracle) REST APIs (GraphQL) Git"
+    },
+    {
+      "skill": "JavaScript",
+      "normalized_skill_id": "javascript",
+      "evidence": "JavaScript (Angular) HTML/ CSS Python (Django) SQL (PostgreSQL, Oracle) REST APIs (GraphQL) Git"
+    },
+    {
+      "skill": "Postgresql",
+      "normalized_skill_id": "postgresql",
+      "evidence": "JavaScript (Angular) HTML/ CSS Python (Django) SQL (PostgreSQL, Oracle) REST APIs (GraphQL) Git"
+    },
+    {
+      "skill": "Python",
+      "normalized_skill_id": "python",
+      "evidence": "JavaScript (Angular) HTML/ CSS Python (Django) SQL (PostgreSQL, Oracle) REST APIs (GraphQL) Git"
+    },
+    {
+      "skill": "Sql",
+      "normalized_skill_id": "sql",
+      "evidence": "JavaScript (Angular) HTML/ CSS Python (Django) SQL (PostgreSQL, Oracle) REST APIs (GraphQL) Git"
+    }
+  ],
+  "projects": [],
+  "experiences": [
+    {
+      "title": "Technician - University of Texas Help Desk",
+      "date_range": "January 2018 - May 2021 Austin, TX",
+      "description": "\u00b7 Worked 18 hours aweek in the campus' largest computer lab to troubleshoot students' issues with network connectivity, printers, and related technology \u00b7 Streamlined the process of responding to issues by implementing aticketing system and grouping similar issues together to reduce resources and time to complete inbound requests by 2 hours \u00b7 Answered phone calls, messages, and chatroom, and assisted with scheduling complex issues that required appointments \u00b7 Trained 3 freshmen help desk technicians in procedures, work ticketing system, and con\ufb02ict management \u00b7 Performed software updates and routine maintenance on computers, printers, and copy machines",
+      "skills_used": [],
+      "evidence": "Technician - University of Texas Help Desk\nJanuary 2018 - May 2021 Austin, TX\n\u00b7 Worked 18 hours aweek in the campus' largest computer lab to troubleshoot students' issues with network connectivity, printers, and related technology \u00b7 Streamlined the process of responding to issues by implementing ati"
+    },
+    {
+      "title": "Research Assistant - UT Computer Science Institute",
+      "date_range": "April 2015 - January 2018 Austin, TX",
+      "description": "\u00b7 Developed an interactive web app for Trial, an app that streamlines the process of literature review for researchers in the University of Texas School of Medicine \u00b7 Researched and tracked potential programming solutions, and documented processes and \ufb01xes \u00b7 Built ascraper in Python to structure data on 5K+ publications, and used the Natural Language Toolkit library in Python for a more robust search of abstracts for research publications \u00b7 Provided ongoing app support to identify, \ufb01x, and test bug issues, and surveyed user feedback to implement changes that increased user satisfaction by 17% \u00b7 Collaborated with undergraduate and graduate computer science students to determine design, app interaction, and enhancements",
+      "skills_used": [
+        "Python"
+      ],
+      "evidence": "Research Assistant - UT Computer Science Institute\nApril 2015 - January 2018 Austin, TX\n\u00b7 Developed an interactive web app for Trial, an app that streamlines the process of literature review for researchers in the University of Texas School of Medicine \u00b7 Researched and tracked potential programming "
+    }
+  ],
+  "skill_assessment": [
+    {
+      "skill": "Css",
+      "normalized_skill_id": "css",
+      "claimed": true,
+      "project_count": 0,
+      "recent_usage": false,
+      "proficiency_score": 20,
+      "level": "Basic",
+      "confidence": 0.5,
+      "evidence_snippets": [
+        "JavaScript (Angular) HTML/ CSS Python (Django) SQL (PostgreSQL, Oracle) REST APIs (GraphQL) Git"
+      ],
+      "experience_count": 0,
+      "priority": "Low",
+      "priority_reason": "Only mentioned in resume with no project/experience evidence."
+    },
+    {
+      "skill": "Django",
+      "normalized_skill_id": "django",
+      "claimed": true,
+      "project_count": 0,
+      "recent_usage": false,
+      "proficiency_score": 20,
+      "level": "Basic",
+      "confidence": 0.5,
+      "evidence_snippets": [
+        "JavaScript (Angular) HTML/ CSS Python (Django) SQL (PostgreSQL, Oracle) REST APIs (GraphQL) Git"
+      ],
+      "experience_count": 0,
+      "priority": "Low",
+      "priority_reason": "Only mentioned in resume with no project/experience evidence."
+    },
+    {
+      "skill": "Git",
+      "normalized_skill_id": "git",
+      "claimed": true,
+      "project_count": 0,
+      "recent_usage": false,
+      "proficiency_score": 20,
+      "level": "Basic",
+      "confidence": 0.5,
+      "evidence_snippets": [
+        "JavaScript (Angular) HTML/ CSS Python (Django) SQL (PostgreSQL, Oracle) REST APIs (GraphQL) Git"
+      ],
+      "experience_count": 0,
+      "priority": "Low",
+      "priority_reason": "Only mentioned in resume with no project/experience evidence."
+    },
+    {
+      "skill": "Html",
+      "normalized_skill_id": "html",
+      "claimed": true,
+      "project_count": 0,
+      "recent_usage": false,
+      "proficiency_score": 20,
+      "level": "Basic",
+      "confidence": 0.5,
+      "evidence_snippets": [
+        "JavaScript (Angular) HTML/ CSS Python (Django) SQL (PostgreSQL, Oracle) REST APIs (GraphQL) Git"
+      ],
+      "experience_count": 0,
+      "priority": "Low",
+      "priority_reason": "Only mentioned in resume with no project/experience evidence."
+    },
+    {
+      "skill": "JavaScript",
+      "normalized_skill_id": "javascript",
+      "claimed": true,
+      "project_count": 0,
+      "recent_usage": false,
+      "proficiency_score": 20,
+      "level": "Basic",
+      "confidence": 0.5,
+      "evidence_snippets": [
+        "JavaScript (Angular) HTML/ CSS Python (Django) SQL (PostgreSQL, Oracle) REST APIs (GraphQL) Git"
+      ],
+      "experience_count": 0,
+      "priority": "Low",
+      "priority_reason": "Only mentioned in resume with no project/experience evidence."
+    },
+    {
+      "skill": "Postgresql",
+      "normalized_skill_id": "postgresql",
+      "claimed": true,
+      "project_count": 0,
+      "recent_usage": false,
+      "proficiency_score": 20,
+      "level": "Basic",
+      "confidence": 0.5,
+      "evidence_snippets": [
+        "JavaScript (Angular) HTML/ CSS Python (Django) SQL (PostgreSQL, Oracle) REST APIs (GraphQL) Git"
+      ],
+      "experience_count": 0,
+      "priority": "Low",
+      "priority_reason": "Only mentioned in resume with no project/experience evidence."
+    },
+    {
+      "skill": "Python",
+      "normalized_skill_id": "python",
+      "claimed": true,
+      "project_count": 0,
+      "recent_usage": false,
+      "proficiency_score": 55,
+      "level": "Moderate",
+      "confidence": 0.75,
+      "evidence_snippets": [
+        "JavaScript (Angular) HTML/ CSS Python (Django) SQL (PostgreSQL, Oracle) REST APIs (GraphQL) Git",
+        "Research Assistant - UT Computer Science Institute\nApril 2015 - January 2018 Austin, TX\n\u00b7 Developed an interactive web app for Trial, an app that streamlines the process of literature review for resea"
+      ],
+      "experience_count": 1,
+      "priority": "High",
+      "priority_reason": "Mentioned and validated by experience evidence."
+    },
+    {
+      "skill": "Sql",
+      "normalized_skill_id": "sql",
+      "claimed": true,
+      "project_count": 0,
+      "recent_usage": false,
+      "proficiency_score": 20,
+      "level": "Basic",
+      "confidence": 0.5,
+      "evidence_snippets": [
+        "JavaScript (Angular) HTML/ CSS Python (Django) SQL (PostgreSQL, Oracle) REST APIs (GraphQL) Git"
+      ],
+      "experience_count": 0,
+      "priority": "Low",
+      "priority_reason": "Only mentioned in resume with no project/experience evidence."
+    }
+  ],
+  "analysis_metadata": {
+    "analysis_version": "v1",
+    "analyzed_at": "2026-03-05T10:35:08Z",
+    "model_or_pipeline": "hybrid_rules_plus_llm",
+    "status": "completed"
+  },
+  "skill_categories": {
+    "core_skills": [
+      "Python"
+    ],
+    "familiar_skills": [
+      "Css",
+      "Django",
+      "Git",
+      "Html",
+      "JavaScript",
+      "Postgresql",
+      "Sql"
+    ]
+  }
+}

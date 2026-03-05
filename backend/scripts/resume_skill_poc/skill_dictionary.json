@@ -1,0 +1,161 @@
+{
+  "react": [
+    "react",
+    "react.js",
+    "reactjs"
+  ],
+  "python": [
+    "python",
+    "py"
+  ],
+  "c++": [
+    "c++",
+    "cpp",
+    "c plus plus"
+  ],
+  "c#": [
+    "c#",
+    "csharp"
+  ],
+  "java": [
+    "java"
+  ],
+  "javascript": [
+    "javascript",
+    "js"
+  ],
+  "typescript": [
+    "typescript",
+    "ts"
+  ],
+  "swift": [
+    "swift"
+  ],
+  "node.js": [
+    "node.js",
+    "nodejs",
+    "node"
+  ],
+  "express.js": [
+    "express",
+    "express.js"
+  ],
+  "django": [
+    "django"
+  ],
+  "flask": [
+    "flask"
+  ],
+  "fastapi": [
+    "fastapi"
+  ],
+  "spring boot": [
+    "springboot",
+    "spring boot"
+  ],
+  "sql": [
+    "sql"
+  ],
+  "mysql": [
+    "mysql"
+  ],
+  "postgresql": [
+    "postgresql",
+    "postgres"
+  ],
+  "mongodb": [
+    "mongodb",
+    "mongo"
+  ],
+  "redis": [
+    "redis"
+  ],
+  "html": [
+    "html",
+    "html5"
+  ],
+  "css": [
+    "css",
+    "css3"
+  ],
+  "tailwind css": [
+    "tailwind",
+    "tailwindcss"
+  ],
+  "bootstrap": [
+    "bootstrap"
+  ],
+  "aws": [
+    "aws",
+    "amazon web services"
+  ],
+  "azure": [
+    "azure",
+    "microsoft azure"
+  ],
+  "google cloud": [
+    "gcp",
+    "google cloud"
+  ],
+  "docker": [
+    "docker"
+  ],
+  "kubernetes": [
+    "kubernetes",
+    "k8s"
+  ],
+  "git": [
+    "git",
+    "github",
+    "gitlab"
+  ],
+  "linux": [
+    "linux",
+    "ubuntu"
+  ],
+  "pandas": [
+    "pandas"
+  ],
+  "numpy": [
+    "numpy"
+  ],
+  "scikit-learn": [
+    "scikit-learn",
+    "sklearn"
+  ],
+  "matplotlib": [
+    "matplotlib"
+  ],
+  "tensorflow": [
+    "tensorflow",
+    "tf"
+  ],
+  "pytorch": [
+    "pytorch",
+    "torch"
+  ],
+  "nlp": [
+    "nlp",
+    "natural language processing"
+  ],
+  "machine learning": [
+    "machine learning",
+    "ml"
+  ],
+  "data structures": [
+    "data structures",
+    "dsa"
+  ],
+  "oop": [
+    "oop",
+    "object oriented programming"
+  ],
+  "power bi": [
+    "power bi",
+    "powerbi"
+  ],
+  "tableau": [
+    "tableau"
+  ],
+  "gh actions": []
+}

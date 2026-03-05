@@ -1,0 +1,139 @@
+{
+  "employee_id": "POC-EMP-001",
+  "resume_id": "case_a_react_heavy",
+  "employee_profile": {
+    "name": "Software Engineer",
+    "address": "React, Python, C++, TypeScript",
+    "phone_number": null,
+    "email": null,
+    "linkedin": null,
+    "github": null,
+    "date_of_birth": null,
+    "education": [],
+    "experiences": [
+      {
+        "headline": "Software Engineer",
+        "date_range": "Unknown",
+        "details": ""
+      }
+    ]
+  },
+  "claimed_skills": [
+    {
+      "skill": "C++",
+      "normalized_skill_id": "c++",
+      "evidence": "React, Python, C++, TypeScript"
+    },
+    {
+      "skill": "Python",
+      "normalized_skill_id": "python",
+      "evidence": "React, Python, C++, TypeScript"
+    },
+    {
+      "skill": "React",
+      "normalized_skill_id": "react",
+      "evidence": "React, Python, C++, TypeScript"
+    },
+    {
+      "skill": "TypeScript",
+      "normalized_skill_id": "typescript",
+      "evidence": "React, Python, C++, TypeScript"
+    }
+  ],
+  "projects": [
+    {
+      "name": "- E-commerce Admin Panel (2024-01 to 2024-06)",
+      "date_range": "2024 to 2024",
+      "description": "Built admin dashboard in React and TypeScript with reusable components.",
+      "skills_used": [
+        "React",
+        "TypeScript"
+      ],
+      "evidence": "- E-commerce Admin Panel (2024-01 to 2024-06)\nBuilt admin dashboard in React and TypeScript with reusable components."
+    },
+    {
+      "name": "CRM Frontend Revamp (2025-02 to 2025-08)",
+      "date_range": "2025 to 2025",
+      "description": "Migrated legacy UI to React and improved performance.",
+      "skills_used": [
+        "React"
+      ],
+      "evidence": "CRM Frontend Revamp (2025-02 to 2025-08)\nMigrated legacy UI to React and improved performance."
+    }
+  ],
+  "experiences": [],
+  "skill_assessment": [
+    {
+      "skill": "C++",
+      "normalized_skill_id": "c++",
+      "claimed": true,
+      "project_count": 0,
+      "recent_usage": false,
+      "proficiency_score": 20,
+      "level": "Basic",
+      "confidence": 0.5,
+      "evidence_snippets": [
+        "React, Python, C++, TypeScript"
+      ],
+      "experience_count": 0,
+      "priority": "Low",
+      "priority_reason": "Only mentioned in resume with no project/experience evidence."
+    },
+    {
+      "skill": "Python",
+      "normalized_skill_id": "python",
+      "claimed": true,
+      "project_count": 0,
+      "recent_usage": false,
+      "proficiency_score": 20,
+      "level": "Basic",
+      "confidence": 0.5,
+      "evidence_snippets": [
+        "React, Python, C++, TypeScript"
+      ],
+      "experience_count": 0,
+      "priority": "Low",
+      "priority_reason": "Only mentioned in resume with no project/experience evidence."
+    },
+    {
+      "skill": "React",
+      "normalized_skill_id": "react",
+      "claimed": true,
+      "project_count": 2,
+      "recent_usage": true,
+      "proficiency_score": 80,
+      "level": "Strong",
+      "confidence": 0.85,
+      "evidence_snippets": [
+        "React, Python, C++, TypeScript",
+        "- E-commerce Admin Panel (2024-01 to 2024-06)\nBuilt admin dashboard in React and TypeScript with reusable components."
+      ],
+      "experience_count": 0,
+      "priority": "Medium",
+      "priority_reason": "Mentioned and validated by project evidence."
+    },
+    {
+      "skill": "TypeScript",
+      "normalized_skill_id": "typescript",
+      "claimed": true,
+      "project_count": 1,
+      "recent_usage": true,
+      "proficiency_score": 60,
+      "level": "Moderate",
+      "confidence": 0.75,
+      "evidence_snippets": [
+        "React, Python, C++, TypeScript",
+        "- E-commerce Admin Panel (2024-01 to 2024-06)\nBuilt admin dashboard in React and TypeScript with reusable components."
+      ],
+      "experience_count": 0,
+      "priority": "Medium",
+      "priority_reason": "Mentioned and validated by project evidence."
+    }
+  ],
+  "analysis_metadata": {
+    "analysis_version": "v1",
+    "analyzed_at": "2026-03-05T09:03:17Z",
+    "model_or_pipeline": "hybrid_rules_plus_llm",
+    "status": "completed"
+  }
+}

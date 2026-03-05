@@ -1,0 +1,239 @@
+{
+  "employee_id": "UPLOAD-EMP-001",
+  "resume_id": "computer-science-student-resume-example",
+  "employee_profile": {
+    "name": "HANANI\u00a0AMIR",
+    "address": "Pittsburgh, PA",
+    "phone_number": "(123) 456-7890",
+    "email": "hanani.amir@email.com",
+    "linkedin": null,
+    "github": null,
+    "date_of_birth": null,
+    "education": [
+      {
+        "headline": "B.S. - Computer Science University of Pittsburgh September 2017 - May 2021 Pittsburgh, PA GPA: 3.91 Presidential Scholarship Cum Laude Socie",
+        "date_range": "2017 - May 2021",
+        "details": "Computer Science University of Pittsburgh September 2017 - May 2021 Pittsburgh, PA GPA: 3.91 Presidential Scholarship Cum Laude Society Dean'sList (5/8 semesters)"
+      }
+    ],
+    "experiences": [
+      {
+        "headline": "Party Playlist Votes - Creator",
+        "date_range": "Unknown",
+        "details": "\u00b7 Built anative mobile app for Android and iOS that allows a party host to invite party attendees to vote on event music, which reduced decision times by 45 minutes on average \u00b7 Started with amobile app for Android, and then learned Swift to port it to iOS \u00b7 Utilized the Spotify API, and built an interactive, real-time voting function on top of it \u00b7 Used Swift, Java, SQL, HTML/CSS in creation and maintenance, implementing user feedback"
+      },
+      {
+        "headline": "Student Coder Group - Mentor",
+        "date_range": "September 2018 - May 2021",
+        "details": "\u00b7 Mentored 13 incoming computer science freshmen, providing guidance on challenging classes and performing code review for their \ufb01rst CS projects \u00b7 Collaborated with fourth-year CS students to organize networking events for connecting with local developers"
+      },
+      {
+        "headline": "University of Pittsburgh Soccer - Captain",
+        "date_range": "September 2017 - May 2021",
+        "details": "\u00b7 Communicated practices and events to team, working in partnership with coaches to streamline team information \u00b7 Led initiative to mentor and coach local youth soccer teams in the community for 12 hours each summer month"
+      }
+    ]
+  },
+  "claimed_skills": [
+    {
+      "skill": "Css",
+      "normalized_skill_id": "css",
+      "evidence": "Advanced: Java, Unix, Git Familiar: Swift, SQL, HTML/CSS CAREER OBJECTIVE Industrious recent computer science graduate with azeal for innovation. Seeking aposition at Sikka Software, where the strategic focus on delighting users aligns with my creati"
+    },
+    {
+      "skill": "Git",
+      "normalized_skill_id": "git",
+      "evidence": "Advanced: Java, Unix, Git Familiar: Swift, SQL, HTML/CSS CAREER OBJECTIVE Industrious recent computer science graduate with azeal for innovation. Seeking aposition at Sikka Software, where the strategic focus on delighting users aligns with my creati"
+    },
+    {
+      "skill": "Html",
+      "normalized_skill_id": "html",
+      "evidence": "Advanced: Java, Unix, Git Familiar: Swift, SQL, HTML/CSS CAREER OBJECTIVE Industrious recent computer science graduate with azeal for innovation. Seeking aposition at Sikka Software, where the strategic focus on delighting users aligns with my creati"
+    },
+    {
+      "skill": "Java",
+      "normalized_skill_id": "java",
+      "evidence": "Advanced: Java, Unix, Git Familiar: Swift, SQL, HTML/CSS CAREER OBJECTIVE Industrious recent computer science graduate with azeal for innovation. Seeking aposition at Sikka Software, where the strategic focus on delighting users aligns with my creati"
+    },
+    {
+      "skill": "Sql",
+      "normalized_skill_id": "sql",
+      "evidence": "Advanced: Java, Unix, Git Familiar: Swift, SQL, HTML/CSS CAREER OBJECTIVE Industrious recent computer science graduate with azeal for innovation. Seeking aposition at Sikka Software, where the strategic focus on delighting users aligns with my creati"
+    },
+    {
+      "skill": "Swift",
+      "normalized_skill_id": "swift",
+      "evidence": "Advanced: Java, Unix, Git Familiar: Swift, SQL, HTML/CSS CAREER OBJECTIVE Industrious recent computer science graduate with azeal for innovation. Seeking aposition at Sikka Software, where the strategic focus on delighting users aligns with my creati"
+    }
+  ],
+  "projects": [
+    {
+      "name": "Party Playlist Votes",
+      "date_range": "Unknown",
+      "description": "Creator \u00b7 Built a native mobile app for Android and iOS that allows a party host to invite party attendees to vote on event music, which reduced decision times by 45 minutes on average \u00b7 Started with a mobile app for Android, and then learned Swift to port it to iOS \u00b7 Utilized the Spotify API, and built an interactive, real-time voting function on top of it \u00b7 Used Swift, Java, SQL, HTML/CSS in creation and maintenance, implementing user feedback Student Coder Group Mentor September 2018 - May 2021 \u00b7 Mentored 13 incoming computer science freshmen, providing guidance on challenging classes and performing code review for their \ufb01rst CS projects \u00b7 Collaborated with fourth-year CS students to organize networking events for connecting with local developers University of Pittsburgh Soccer Captain ",
+      "skills_used": [
+        "Css",
+        "Html",
+        "Java",
+        "Sql",
+        "Swift"
+      ],
+      "evidence": "Party Playlist Votes\nCreator\n\u00b7 Built a native mobile app for Android and iOS that allows a\nparty host to invite party attendees to vote on event music,\nwhich reduced decision times by 45 minutes on average\n\u00b7 Started with a mobile app for Android, and then learned\nSwift to port it to iOS\n\u00b7 Utilized t"
+    }
+  ],
+  "experiences": [
+    {
+      "title": "Party Playlist Votes - Creator",
+      "date_range": "Unknown",
+      "description": "\u00b7 Built anative mobile app for Android and iOS that allows a party host to invite party attendees to vote on event music, which reduced decision times by 45 minutes on average \u00b7 Started with amobile app for Android, and then learned Swift to port it to iOS \u00b7 Utilized the Spotify API, and built an interactive, real-time voting function on top of it \u00b7 Used Swift, Java, SQL, HTML/CSS in creation and maintenance, implementing user feedback",
+      "skills_used": [
+        "Css",
+        "Html",
+        "Java",
+        "Sql",
+        "Swift"
+      ],
+      "evidence": "Party Playlist Votes - Creator\nUnknown\n\u00b7 Built anative mobile app for Android and iOS that allows a party host to invite party attendees to vote on event music, which reduced decision times by 45 minutes on average \u00b7 Started with amobile app for Android, and then learned Swift to port it to iOS \u00b7 Ut"
+    },
+    {
+      "title": "Student Coder Group - Mentor",
+      "date_range": "September 2018 - May 2021",
+      "description": "\u00b7 Mentored 13 incoming computer science freshmen, providing guidance on challenging classes and performing code review for their \ufb01rst CS projects \u00b7 Collaborated with fourth-year CS students to organize networking events for connecting with local developers",
+      "skills_used": [],
+      "evidence": "Student Coder Group - Mentor\nSeptember 2018 - May 2021\n\u00b7 Mentored 13 incoming computer science freshmen, providing guidance on challenging classes and performing code review for their \ufb01rst CS projects \u00b7 Collaborated with fourth-year CS students to organize networking events for connecting with local"
+    },
+    {
+      "title": "University of Pittsburgh Soccer - Captain",
+      "date_range": "September 2017 - May 2021",
+      "description": "\u00b7 Communicated practices and events to team, working in partnership with coaches to streamline team information \u00b7 Led initiative to mentor and coach local youth soccer teams in the community for 12 hours each summer month",
+      "skills_used": [],
+      "evidence": "University of Pittsburgh Soccer - Captain\nSeptember 2017 - May 2021\n\u00b7 Communicated practices and events to team, working in partnership with coaches to streamline team information \u00b7 Led initiative to mentor and coach local youth soccer teams in the community for 12 hours each summer month"
+    }
+  ],
+  "skill_assessment": [
+    {
+      "skill": "Css",
+      "normalized_skill_id": "css",
+      "claimed": true,
+      "project_count": 1,
+      "recent_usage": false,
+      "proficiency_score": 75,
+      "level": "Moderate",
+      "confidence": 0.85,
+      "evidence_snippets": [
+        "Advanced: Java, Unix, Git Familiar: Swift, SQL, HTML/CSS CAREER OBJECTIVE Industrious recent computer science graduate with azeal for innovation. Seeking aposition at Sikka Software, where the strateg",
+        "Party Playlist Votes\nCreator\n\u00b7 Built a native mobile app for Android and iOS that allows a\nparty host to invite party attendees to vote on event music,\nwhich reduced decision times by 45 minutes on av",
+        "Party Playlist Votes - Creator\nUnknown\n\u00b7 Built anative mobile app for Android and iOS that allows a party host to invite party attendees to vote on event music, which reduced decision times by 45 minu"
+      ],
+      "experience_count": 1,
+      "priority": "Very High",
+      "priority_reason": "Mentioned and validated by both project and experience evidence."
+    },
+    {
+      "skill": "Git",
+      "normalized_skill_id": "git",
+      "claimed": true,
+      "project_count": 0,
+      "recent_usage": false,
+      "proficiency_score": 20,
+      "level": "Basic",
+      "confidence": 0.5,
+      "evidence_snippets": [
+        "Advanced: Java, Unix, Git Familiar: Swift, SQL, HTML/CSS CAREER OBJECTIVE Industrious recent computer science graduate with azeal for innovation. Seeking aposition at Sikka Software, where the strateg"
+      ],
+      "experience_count": 0,
+      "priority": "Low",
+      "priority_reason": "Only mentioned in resume with no project/experience evidence."
+    },
+    {
+      "skill": "Html",
+      "normalized_skill_id": "html",
+      "claimed": true,
+      "project_count": 1,
+      "recent_usage": false,
+      "proficiency_score": 75,
+      "level": "Moderate",
+      "confidence": 0.85,
+      "evidence_snippets": [
+        "Advanced: Java, Unix, Git Familiar: Swift, SQL, HTML/CSS CAREER OBJECTIVE Industrious recent computer science graduate with azeal for innovation. Seeking aposition at Sikka Software, where the strateg",
+        "Party Playlist Votes\nCreator\n\u00b7 Built a native mobile app for Android and iOS that allows a\nparty host to invite party attendees to vote on event music,\nwhich reduced decision times by 45 minutes on av",
+        "Party Playlist Votes - Creator\nUnknown\n\u00b7 Built anative mobile app for Android and iOS that allows a party host to invite party attendees to vote on event music, which reduced decision times by 45 minu"
+      ],
+      "experience_count": 1,
+      "priority": "Very High",
+      "priority_reason": "Mentioned and validated by both project and experience evidence."
+    },
+    {
+      "skill": "Java",
+      "normalized_skill_id": "java",
+      "claimed": true,
+      "project_count": 1,
+      "recent_usage": false,
+      "proficiency_score": 75,
+      "level": "Moderate",
+      "confidence": 0.85,
+      "evidence_snippets": [
+        "Advanced: Java, Unix, Git Familiar: Swift, SQL, HTML/CSS CAREER OBJECTIVE Industrious recent computer science graduate with azeal for innovation. Seeking aposition at Sikka Software, where the strateg",
+        "Party Playlist Votes\nCreator\n\u00b7 Built a native mobile app for Android and iOS that allows a\nparty host to invite party attendees to vote on event music,\nwhich reduced decision times by 45 minutes on av",
+        "Party Playlist Votes - Creator\nUnknown\n\u00b7 Built anative mobile app for Android and iOS that allows a party host to invite party attendees to vote on event music, which reduced decision times by 45 minu"
+      ],
+      "experience_count": 1,
+      "priority": "Very High",
+      "priority_reason": "Mentioned and validated by both project and experience evidence."
+    },
+    {
+      "skill": "Sql",
+      "normalized_skill_id": "sql",
+      "claimed": true,
+      "project_count": 1,
+      "recent_usage": false,
+      "proficiency_score": 75,
+      "level": "Moderate",
+      "confidence": 0.85,
+      "evidence_snippets": [
+        "Advanced: Java, Unix, Git Familiar: Swift, SQL, HTML/CSS CAREER OBJECTIVE Industrious recent computer science graduate with azeal for innovation. Seeking aposition at Sikka Software, where the strateg",
+        "Party Playlist Votes\nCreator\n\u00b7 Built a native mobile app for Android and iOS that allows a\nparty host to invite party attendees to vote on event music,\nwhich reduced decision times by 45 minutes on av",
+        "Party Playlist Votes - Creator\nUnknown\n\u00b7 Built anative mobile app for Android and iOS that allows a party host to invite party attendees to vote on event music, which reduced decision times by 45 minu"
+      ],
+      "experience_count": 1,
+      "priority": "Very High",
+      "priority_reason": "Mentioned and validated by both project and experience evidence."
+    },
+    {
+      "skill": "Swift",
+      "normalized_skill_id": "swift",
+      "claimed": true,
+      "project_count": 1,
+      "recent_usage": false,
+      "proficiency_score": 75,
+      "level": "Moderate",
+      "confidence": 0.85,
+      "evidence_snippets": [
+        "Advanced: Java, Unix, Git Familiar: Swift, SQL, HTML/CSS CAREER OBJECTIVE Industrious recent computer science graduate with azeal for innovation. Seeking aposition at Sikka Software, where the strateg",
+        "Party Playlist Votes\nCreator\n\u00b7 Built a native mobile app for Android and iOS that allows a\nparty host to invite party attendees to vote on event music,\nwhich reduced decision times by 45 minutes on av",
+        "Party Playlist Votes - Creator\nUnknown\n\u00b7 Built anative mobile app for Android and iOS that allows a party host to invite party attendees to vote on event music, which reduced decision times by 45 minu"
+      ],
+      "experience_count": 1,
+      "priority": "Very High",
+      "priority_reason": "Mentioned and validated by both project and experience evidence."
+    }
+  ],
+  "analysis_metadata": {
+    "analysis_version": "v1",
+    "analyzed_at": "2026-03-05T10:01:49Z",
+    "model_or_pipeline": "hybrid_rules_plus_llm",
+    "status": "completed"
+  },
+  "skill_categories": {
+    "core_skills": [
+      "Swift",
+      "Sql",
+      "Java",
+      "Html",
+      "Css"
+    ],
+    "familiar_skills": [
+      "Git"
+    ]
+  }
+}

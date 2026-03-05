@@ -1,0 +1,291 @@
+{
+  "employee_id": "UPLOAD-EMP-001",
+  "resume_id": "item_55_20260217074105",
+  "employee_profile": {
+    "name": null,
+    "address": "Cloud  Automation  Specialist  with  agood  foundation  in  core  AWS  services  including  EC2,  S3,  IAM,  VPC,  and",
+    "phone_number": "7758006946",
+    "email": "0208.tejaspatil@gmail.com",
+    "linkedin": null,
+    "github": null,
+    "date_of_birth": null,
+    "education": [
+      {
+        "headline": "Suryadatta  College  of  Management  Information  Research  and  Technology                                                                P",
+        "date_range": "2022  -  04-2025",
+        "details": "Certification C++  (Udemy-Instructor  -               Covers  to  build  games  in  C++  from  scratch  while  mastering  programming   GameDev.tv  Team)                          fundamentals,  object-oriented  principles,  and  clean   coding  practices   CProgramming  (MKCL)   -              covering  core  concepts  such  as  variables,  data  types,  loops,  conditionals."
+      }
+    ],
+    "experiences": [
+      {
+        "headline": "in",
+        "date_range": "Unknown",
+        "details": "in\nUnknown"
+      },
+      {
+        "headline": "Containerization",
+        "date_range": "Unknown",
+        "details": "Containerization\nUnknown"
+      },
+      {
+        "headline": "(Docker/Kubernetes",
+        "date_range": "Unknown",
+        "details": "(Docker/Kubernetes\nUnknown"
+      },
+      {
+        "headline": "basics)",
+        "date_range": "Unknown",
+        "details": ","
+      },
+      {
+        "headline": "IaC",
+        "date_range": "Unknown",
+        "details": "IaC\nUnknown"
+      },
+      {
+        "headline": "(Terraform)",
+        "date_range": "Unknown",
+        "details": ","
+      },
+      {
+        "headline": "and",
+        "date_range": "Unknown",
+        "details": "and\nUnknown"
+      },
+      {
+        "headline": "CI/CD",
+        "date_range": "Unknown",
+        "details": "CI/CD\nUnknown"
+      },
+      {
+        "headline": "pipeline",
+        "date_range": "Unknown",
+        "details": "pipeline\nUnknown"
+      },
+      {
+        "headline": "development",
+        "date_range": "Unknown",
+        "details": "development\nUnknown"
+      },
+      {
+        "headline": "(",
+        "date_range": "Unknown",
+        "details": "Jenkins/AWS"
+      },
+      {
+        "headline": "CodePipeline",
+        "date_range": "Unknown",
+        "details": ")"
+      }
+    ]
+  },
+  "employee_profile_debug": {
+    "mode": "llm_with_field_fallback",
+    "llm_status": "failed",
+    "llm_error": "Gemini returned invalid/empty profile payload.",
+    "section_keys": [
+      "education",
+      "experience",
+      "other",
+      "projects",
+      "skills",
+      "summary"
+    ],
+    "field_confidence": {
+      "name": {
+        "source": "missing",
+        "score": 0.0
+      },
+      "address": {
+        "source": "rules_fallback",
+        "score": 0.65
+      },
+      "phone_number": {
+        "source": "rules_fallback",
+        "score": 0.65
+      },
+      "email": {
+        "source": "rules_fallback",
+        "score": 0.65
+      },
+      "linkedin": {
+        "source": "missing",
+        "score": 0.0
+      },
+      "github": {
+        "source": "missing",
+        "score": 0.0
+      },
+      "date_of_birth": {
+        "source": "missing",
+        "score": 0.0
+      },
+      "education": {
+        "source": "llm_plus_rules",
+        "score": 0.6
+      },
+      "experiences": {
+        "source": "llm_plus_rules",
+        "score": 0.0
+      }
+    },
+    "llm_raw_text": ""
+  },
+  "claimed_skills": [],
+  "projects": [],
+  "experiences": [
+    {
+      "title": "in",
+      "date_range": "Unknown",
+      "description": "in\nUnknown",
+      "skills_used": [],
+      "evidence": "in\nUnknown"
+    },
+    {
+      "title": "Containerization",
+      "date_range": "Unknown",
+      "description": "Containerization\nUnknown",
+      "skills_used": [],
+      "evidence": "Containerization\nUnknown"
+    },
+    {
+      "title": "(Docker/Kubernetes",
+      "date_range": "Unknown",
+      "description": "(Docker/Kubernetes\nUnknown",
+      "skills_used": [
+        "Docker",
+        "Kubernetes"
+      ],
+      "evidence": "(Docker/Kubernetes\nUnknown"
+    },
+    {
+      "title": "basics)",
+      "date_range": "Unknown",
+      "description": ",",
+      "skills_used": [],
+      "evidence": "basics)\nUnknown\n,"
+    },
+    {
+      "title": "IaC",
+      "date_range": "Unknown",
+      "description": "IaC\nUnknown",
+      "skills_used": [],
+      "evidence": "IaC\nUnknown"
+    },
+    {
+      "title": "(Terraform)",
+      "date_range": "Unknown",
+      "description": ",",
+      "skills_used": [],
+      "evidence": "(Terraform)\nUnknown\n,"
+    },
+    {
+      "title": "and",
+      "date_range": "Unknown",
+      "description": "and\nUnknown",
+      "skills_used": [],
+      "evidence": "and\nUnknown"
+    },
+    {
+      "title": "CI/CD",
+      "date_range": "Unknown",
+      "description": "CI/CD\nUnknown",
+      "skills_used": [],
+      "evidence": "CI/CD\nUnknown"
+    },
+    {
+      "title": "pipeline",
+      "date_range": "Unknown",
+      "description": "pipeline\nUnknown",
+      "skills_used": [],
+      "evidence": "pipeline\nUnknown"
+    },
+    {
+      "title": "development",
+      "date_range": "Unknown",
+      "description": "development\nUnknown",
+      "skills_used": [],
+      "evidence": "development\nUnknown"
+    },
+    {
+      "title": "(",
+      "date_range": "Unknown",
+      "description": "Jenkins/AWS",
+      "skills_used": [
+        "AWS"
+      ],
+      "evidence": "(\nUnknown\nJenkins/AWS"
+    },
+    {
+      "title": "CodePipeline",
+      "date_range": "Unknown",
+      "description": ")",
+      "skills_used": [],
+      "evidence": "CodePipeline\nUnknown\n)"
+    }
+  ],
+  "skill_assessment": [
+    {
+      "skill": "AWS",
+      "normalized_skill_id": "aws",
+      "claimed": false,
+      "project_count": 0,
+      "recent_usage": false,
+      "proficiency_score": 25,
+      "level": "Basic",
+      "confidence": 0.6,
+      "evidence_snippets": [
+        "(\nUnknown\nJenkins/AWS"
+      ],
+      "experience_count": 1,
+      "priority": "High",
+      "priority_reason": "Inferred from experience evidence."
+    },
+    {
+      "skill": "Docker",
+      "normalized_skill_id": "docker",
+      "claimed": false,
+      "project_count": 0,
+      "recent_usage": false,
+      "proficiency_score": 25,
+      "level": "Basic",
+      "confidence": 0.6,
+      "evidence_snippets": [
+        "(Docker/Kubernetes\nUnknown"
+      ],
+      "experience_count": 1,
+      "priority": "High",
+      "priority_reason": "Inferred from experience evidence."
+    },
+    {
+      "skill": "Kubernetes",
+      "normalized_skill_id": "kubernetes",
+      "claimed": false,
+      "project_count": 0,
+      "recent_usage": false,
+      "proficiency_score": 25,
+      "level": "Basic",
+      "confidence": 0.6,
+      "evidence_snippets": [
+        "(Docker/Kubernetes\nUnknown"
+      ],
+      "experience_count": 1,
+      "priority": "High",
+      "priority_reason": "Inferred from experience evidence."
+    }
+  ],
+  "analysis_metadata": {
+    "analysis_version": "v1",
+    "analyzed_at": "2026-03-05T10:43:00Z",
+    "model_or_pipeline": "hybrid_rules_plus_llm",
+    "status": "completed"
+  },
+  "skill_categories": {
+    "core_skills": [
+      "Kubernetes",
+      "Docker",
+      "AWS"
+    ],
+    "familiar_skills": []
+  }
+}

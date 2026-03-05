@@ -1,0 +1,11 @@
+Name: Candidate B
+Technical Skills:
+Python, Django, React, PostgreSQL
+
+Projects:
+- Inventory Automation (2023-03 to 2024-01)
+Developed backend APIs using Python and Django.
+- Billing Core Service (2024-02 to 2025-05)
+Built Django modules and Python validation pipelines.
+- Legacy Admin UI (2021-01 to 2021-11)
+Maintained React dashboard for admin users.

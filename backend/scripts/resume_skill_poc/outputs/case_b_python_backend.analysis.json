@@ -1,0 +1,144 @@
+{
+  "employee_id": "POC-EMP-002",
+  "resume_id": "case_b_python_backend",
+  "employee_profile": {
+    "name": null,
+    "address": "Python, Django, React, PostgreSQL",
+    "phone_number": null,
+    "email": null,
+    "linkedin": null,
+    "github": null,
+    "date_of_birth": null,
+    "education": [],
+    "experiences": []
+  },
+  "claimed_skills": [
+    {
+      "skill": "Django",
+      "normalized_skill_id": "django",
+      "evidence": "Python, Django, React, PostgreSQL"
+    },
+    {
+      "skill": "Postgresql",
+      "normalized_skill_id": "postgresql",
+      "evidence": "Python, Django, React, PostgreSQL"
+    },
+    {
+      "skill": "Python",
+      "normalized_skill_id": "python",
+      "evidence": "Python, Django, React, PostgreSQL"
+    },
+    {
+      "skill": "React",
+      "normalized_skill_id": "react",
+      "evidence": "Python, Django, React, PostgreSQL"
+    }
+  ],
+  "projects": [
+    {
+      "name": "- Inventory Automation (2023-03 to 2024-01)",
+      "date_range": "2023 to 2024",
+      "description": "Developed backend APIs using Python and Django.",
+      "skills_used": [
+        "Django",
+        "Python"
+      ],
+      "evidence": "- Inventory Automation (2023-03 to 2024-01)\nDeveloped backend APIs using Python and Django."
+    },
+    {
+      "name": "Billing Core Service (2024-02 to 2025-05)",
+      "date_range": "2024 to 2025",
+      "description": "Built Django modules and Python validation pipelines.",
+      "skills_used": [
+        "Django",
+        "Python"
+      ],
+      "evidence": "Billing Core Service (2024-02 to 2025-05)\nBuilt Django modules and Python validation pipelines."
+    },
+    {
+      "name": "Legacy Admin UI (2021-01 to 2021-11)",
+      "date_range": "2021 to 2021",
+      "description": "Maintained React dashboard for admin users.",
+      "skills_used": [
+        "React"
+      ],
+      "evidence": "Legacy Admin UI (2021-01 to 2021-11)\nMaintained React dashboard for admin users."
+    }
+  ],
+  "experiences": [],
+  "skill_assessment": [
+    {
+      "skill": "Django",
+      "normalized_skill_id": "django",
+      "claimed": true,
+      "project_count": 2,
+      "recent_usage": true,
+      "proficiency_score": 80,
+      "level": "Strong",
+      "confidence": 0.85,
+      "evidence_snippets": [
+        "Python, Django, React, PostgreSQL",
+        "- Inventory Automation (2023-03 to 2024-01)\nDeveloped backend APIs using Python and Django."
+      ],
+      "experience_count": 0,
+      "priority": "Medium",
+      "priority_reason": "Mentioned and validated by project evidence."
+    },
+    {
+      "skill": "Postgresql",
+      "normalized_skill_id": "postgresql",
+      "claimed": true,
+      "project_count": 0,
+      "recent_usage": false,
+      "proficiency_score": 20,
+      "level": "Basic",
+      "confidence": 0.5,
+      "evidence_snippets": [
+        "Python, Django, React, PostgreSQL"
+      ],
+      "experience_count": 0,
+      "priority": "Low",
+      "priority_reason": "Only mentioned in resume with no project/experience evidence."
+    },
+    {
+      "skill": "Python",
+      "normalized_skill_id": "python",
+      "claimed": true,
+      "project_count": 2,
+      "recent_usage": true,
+      "proficiency_score": 80,
+      "level": "Strong",
+      "confidence": 0.85,
+      "evidence_snippets": [
+        "Python, Django, React, PostgreSQL",
+        "- Inventory Automation (2023-03 to 2024-01)\nDeveloped backend APIs using Python and Django."
+      ],
+      "experience_count": 0,
+      "priority": "Medium",
+      "priority_reason": "Mentioned and validated by project evidence."
+    },
+    {
+      "skill": "React",
+      "normalized_skill_id": "react",
+      "claimed": true,
+      "project_count": 1,
+      "recent_usage": false,
+      "proficiency_score": 50,
+      "level": "Moderate",
+      "confidence": 0.75,
+      "evidence_snippets": [
+        "Python, Django, React, PostgreSQL",
+        "Legacy Admin UI (2021-01 to 2021-11)\nMaintained React dashboard for admin users."
+      ],
+      "experience_count": 0,
+      "priority": "Medium",
+      "priority_reason": "Mentioned and validated by project evidence."
+    }
+  ],
+  "analysis_metadata": {
+    "analysis_version": "v1",
+    "analyzed_at": "2026-03-05T09:03:22Z",
+    "model_or_pipeline": "hybrid_rules_plus_llm",
+    "status": "completed"
+  }
+}

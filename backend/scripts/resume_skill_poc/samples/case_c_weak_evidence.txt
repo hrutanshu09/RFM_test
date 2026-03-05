@@ -1,0 +1,12 @@
+Name: Candidate C
+Core Competencies:
+Java, AWS, Kubernetes
+
+Projects:
+- Enterprise Platform Modernization
+Worked on scalable enterprise platform modules.
+- Operational Improvements
+Contributed to automation and deployment tasks.
+
+Experience:
+Engineer focused on delivery and coordination.

@@ -1,0 +1,8 @@
+{
+  "resume": "case_b_python_backend.txt",
+  "expected": {
+    "Python": {"level": "Strong"},
+    "Django": {"level": "Strong"},
+    "React": {"level": "Moderate"}
+  }
+}

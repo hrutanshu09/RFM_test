@@ -1,0 +1,8 @@
+{
+  "resume": "case_c_weak_evidence.txt",
+  "expected": {
+    "Java": {"level": "Basic"},
+    "AWS": {"level": "Basic"},
+    "Kubernetes": {"level": "Basic"}
+  }
+}
