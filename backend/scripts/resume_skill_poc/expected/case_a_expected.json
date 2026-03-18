@@ -1,8 +1,0 @@
-{
-  "resume": "case_a_react_heavy.txt",
-  "expected": {
-    "React": {"level": "Strong"},
-    "Python": {"level": "Basic"},
-    "C++": {"level": "Basic"}
-  }
-}

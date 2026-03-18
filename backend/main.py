@@ -122,6 +122,8 @@ from api.uploads import router as uploads_router
 # ---- Candidates & Interviews ----
 from api.candidates import router as candidates_router
 from api.interviews import router as interviews_router
+from api.resume_test_ui import router as resume_test_ui_router
+from api.resume_parse import router as resume_parse_router
 
 # ---- Projects & Resource Management ----
 from api import projects
@@ -162,7 +164,10 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(uploads_router, prefix="/api")
 app.include_router(candidates_router, prefix="/api")
 app.include_router(interviews_router, prefix="/api")
+app.include_router(resume_test_ui_router)
+app.include_router(resume_parse_router, prefix="/api")
 app.include_router(projects.router, prefix="/api") 
 
 
 app.include_router(projects.router)
+

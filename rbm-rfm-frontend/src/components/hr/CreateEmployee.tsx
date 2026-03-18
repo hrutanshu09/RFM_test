@@ -14,6 +14,8 @@ import type {
   ManagerOption,
   RoleOption,
   SkillOption,
+  SkillInput,
+  EducationInput,
 } from "./create-employee/types";
 import {
   FormErrorMap,
@@ -24,6 +26,25 @@ import {
 } from "./create-employee/validation";
 
 type StepId = "core" | "skills" | "deployment" | "finance";
+
+type ResumeParseResponse = {
+  parser_used?: string;
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  linkedin?: string | null;
+  github?: string | null;
+  skills?: string[];
+  education?: (string | { qualification?: string | null; specialization?: string | null; institution?: string | null; year_completed?: string | number | null })[];
+  projects?: string[];
+  work_experience?: string[];
+};
+
+type ResumeAutofillSummary = {
+  filledFields: string[];
+  matchedSkills: number;
+  unmatchedSkills: string[];
+};
 
 const getTodayDate = () =>
   new Date().toISOString().split("T")[0] ?? new Date().toISOString();
@@ -77,6 +98,200 @@ const isCanceledError = (error: unknown) =>
     "code" in error &&
     (error as { code?: string }).code === "ERR_CANCELED");
 
+const normalizeSkillName = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9+.#]/g, "")
+    .trim();
+
+const sanitizePhone = (value: string) => value.replace(/[^0-9+]/g, "");
+
+const buildSkillLookup = (catalog: SkillOption[]) => {
+  const map = new Map<string, SkillOption>();
+  catalog.forEach((skill) => {
+    map.set(normalizeSkillName(skill.skill_name), skill);
+  });
+  return map;
+};
+
+const parseEducationEntries = (
+  items: Array<
+    | string
+    | {
+        qualification?: string | null;
+        specialization?: string | null;
+        institution?: string | null;
+        year_completed?: string | number | null;
+      }
+  >,
+): EducationInput[] => {
+  const degreeKeywords = [
+    "bachelor",
+    "master",
+    "b.tech",
+    "btech",
+    "b.e",
+    "be",
+    "m.tech",
+    "mtech",
+    "mba",
+    "phd",
+    "doctorate",
+    "diploma",
+    "associate",
+  ];
+
+  const hasDegreeKeyword = (value: string) =>
+    degreeKeywords.some((keyword) => value.includes(keyword));
+
+  const extractSpecialization = (value: string) => {
+    const match = value.match(/\bin\s+(.+)/i);
+    if (!match || match.index === undefined) {
+      return { qualification: value.trim(), specialization: "" };
+    }
+    const base = value.slice(0, match.index).trim();
+    const specialization = match[1]?.trim() ?? "";
+    return {
+      qualification: base || value.trim(),
+      specialization,
+    };
+  };
+
+  const normalizeYear = (value: string | number | null | undefined) => {
+    if (value === null || value === undefined) return "";
+    if (typeof value === "number") return String(value);
+    const trimmed = value.trim();
+    return /^\d{4}$/.test(trimmed) ? trimmed : "";
+  };
+
+  const parseLabeledEducation = (value: string) => {
+    const labelRegex =
+      /(qualification|specialization|institution|year\s*completed)\s*:\s*([\s\S]*?)(?=(qualification|specialization|institution|year\s*completed)\s*:\s*|$)/gi;
+    let matched = false;
+    const parsed: EducationInput = {
+      qualification: "",
+      specialization: "",
+      institution: "",
+      year_completed: "",
+    };
+
+    value.replace(labelRegex, (_match, rawLabel, rawValue) => {
+      matched = true;
+      const label = String(rawLabel).toLowerCase().replace(/\s+/g, "");
+      const cleaned = String(rawValue)
+        .replace(/^[\s\-??]+/, "")
+        .replace(/[\s\-??]+$/, "")
+        .trim();
+
+      switch (label) {
+        case "qualification":
+          parsed.qualification = cleaned;
+          break;
+        case "specialization":
+          parsed.specialization = cleaned;
+          break;
+        case "institution":
+          parsed.institution = cleaned;
+          break;
+        case "yearcompleted":
+          parsed.year_completed = normalizeYear(cleaned);
+          break;
+        default:
+          break;
+      }
+      return "";
+    });
+
+    if (!matched) return null;
+    const hasAny =
+      parsed.qualification ||
+      parsed.specialization ||
+      parsed.institution ||
+      parsed.year_completed;
+    return hasAny ? parsed : null;
+  };
+
+  return (items || [])
+    .map((entry) => {
+      if (!entry) return null;
+
+      if (typeof entry !== "string") {
+        const qualification = entry.qualification?.trim() ?? "";
+        const specialization = entry.specialization?.trim() ?? "";
+        const institution = entry.institution?.trim() ?? "";
+        const year = normalizeYear(entry.year_completed ?? "");
+
+        if (!qualification && !specialization && !institution && !year) {
+          return null;
+        }
+
+        return {
+          qualification,
+          specialization,
+          institution,
+          year_completed: year,
+        };
+      }
+
+      const raw = entry.trim();
+      if (!raw) return null;
+
+      const labeled = parseLabeledEducation(raw);
+      if (labeled) {
+        return labeled;
+      }
+
+      const yearMatch = raw.match(/\b(19|20)\d{2}\b/);
+      const year = yearMatch?.[0] ?? "";
+
+      let cleaned = raw.replace(/\s*[–—-]\s*/g, " - ");
+      if (year) {
+        cleaned = cleaned.replace(year, "");
+      }
+      cleaned = cleaned.replace(/[()]/g, "").replace(/\s{2,}/g, " ").trim();
+
+      let parts = cleaned
+        .split(/\s-\s|\s\|\s|\s,\s/)
+        .map((part) => part.trim())
+        .filter(Boolean);
+
+      if (parts.length === 1) {
+        parts = cleaned.split(",").map((part) => part.trim()).filter(Boolean);
+      }
+
+      let qualification = "";
+      let institution = "";
+
+      if (parts.length >= 2) {
+        const first = parts[0] ?? "";
+        const rest = parts.slice(1);
+        const firstLower = first.toLowerCase();
+        const restJoined = rest.join(" ").toLowerCase();
+
+        if (hasDegreeKeyword(firstLower) || !hasDegreeKeyword(restJoined)) {
+          qualification = first;
+          institution = rest.join(" - ");
+        } else {
+          qualification = rest.join(" - ");
+          institution = first;
+        }
+      } else {
+        qualification = cleaned;
+      }
+
+      const { qualification: normalizedQualification, specialization } =
+        extractSpecialization(qualification);
+
+      return {
+        qualification: normalizedQualification || raw,
+        specialization,
+        institution,
+        year_completed: year,
+      };
+    })
+    .filter((entry): entry is EducationInput => Boolean(entry));
+};
+
 const initialFormData: CreateEmployeeForm = {
   core: {
     empId: "",
@@ -116,6 +331,11 @@ const CreateEmployee: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [issuedEmpId, setIssuedEmpId] = useState<string>("");
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [resumeParsing, setResumeParsing] = useState(false);
+  const [resumeError, setResumeError] = useState<string | null>(null);
+  const [resumeSummary, setResumeSummary] =
+    useState<ResumeAutofillSummary | null>(null);
   const submitInFlight = useRef(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isConfirmed, setIsConfirmed] = useState(false);
@@ -290,12 +510,124 @@ const CreateEmployee: React.FC = () => {
       formRef.current?.requestSubmit();
     }, 0);
   };
-
   const handleCancelConfirm = () => {
     setShowConfirmModal(false);
     setIsConfirmed(false);
   };
+  const handleCreateClick = () => {
+    if (isSubmitting) return;
+    setShowConfirmModal(true);
+  };
 
+  const handleResumeFileChange = (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0] ?? null;
+    setResumeFile(file);
+    setResumeError(null);
+    setResumeSummary(null);
+  };
+
+  const handleParseResume = async () => {
+    if (!resumeFile) {
+      setResumeError("Please select a PDF or DOCX file.");
+      return;
+    }
+
+    setResumeParsing(true);
+    setResumeError(null);
+    setResumeSummary(null);
+
+    try {
+      const fd = new FormData();
+      fd.append("file", resumeFile);
+
+      const response = await apiClient.post<ResumeParseResponse>(
+        "/resumes/parse",
+        fd,
+        {
+          headers: { "Content-Type": "multipart/form-data" },
+        },
+      );
+
+      const data = response.data ?? {};
+      const skillLookup = buildSkillLookup(skillsCatalog);
+      const matchedSkills: SkillInput[] = [];
+      const unmatchedSkills = new Set<string>();
+
+      (data.skills ?? []).forEach((skill) => {
+        const normalized = normalizeSkillName(skill);
+        if (!normalized) return;
+        const match = skillLookup.get(normalized);
+        if (match) {
+          matchedSkills.push({
+            skill_id: match.skill_id,
+            proficiency_level: "Mid",
+            years_experience: 0,
+          });
+        } else if (skill) {
+          unmatchedSkills.add(skill);
+        }
+      });
+
+      const educationEntries = parseEducationEntries(data.education ?? []);
+
+      setFormData((prev) => {
+        const nextCore = {
+          ...prev.core,
+          fullName: data.name?.trim() ?? "",
+        };
+
+        const contacts = prev.contacts.map((contact) => ({ ...contact }));
+        let personalIndex = contacts.findIndex(
+          (contact) => contact.type === "personal",
+        );
+        if (personalIndex === -1) {
+          contacts.push({
+            type: "personal",
+            email: "",
+            phone: "",
+            address: "",
+          });
+          personalIndex = contacts.length - 1;
+        }
+
+        const personalContact = contacts[personalIndex];
+        if (personalContact) {
+          personalContact.email = data.email?.trim() ?? "";
+          personalContact.phone = data.phone
+            ? sanitizePhone(data.phone)
+            : "";
+        }
+
+        return {
+          ...prev,
+          core: nextCore,
+          contacts,
+          skills: matchedSkills,
+          education: educationEntries,
+        };
+      });
+
+      const filledFields: string[] = [];
+      if (data.name) filledFields.push("Full name");
+      if (data.email) filledFields.push("Personal email");
+      if (data.phone) filledFields.push("Phone");
+      if (matchedSkills.length > 0) filledFields.push("Skills");
+      if (educationEntries.length > 0) filledFields.push("Education");
+
+      setResumeSummary({
+        filledFields,
+        matchedSkills: matchedSkills.length,
+        unmatchedSkills: Array.from(unmatchedSkills),
+      });
+    } catch (parseError) {
+      const message = extractErrorMessage(parseError);
+      setResumeError(message);
+    } finally {
+      setResumeParsing(false);
+    }
+  };
   useEffect(() => {
     // Step state tracked for form navigation
   }, [currentStep, steps.length, isLastStep]);
@@ -419,9 +751,7 @@ const CreateEmployee: React.FC = () => {
     if (!isLastStep) {
       return;
     }
-
     if (!isConfirmed) {
-      setShowConfirmModal(true);
       return;
     }
 
@@ -591,7 +921,62 @@ const CreateEmployee: React.FC = () => {
             </h2>
             <p className="section-subtitle">Employee identity & role.</p>
           </div>
-          <StepCoreProfile
+  
+        {currentStepId === "core" && (
+          <div className="resume-autofill-card">
+            <div className="resume-autofill-header">
+              <div>
+                <h3 className="resume-autofill-title">Resume Auto-Fill</h3>
+                <p className="resume-autofill-subtitle">
+                  Upload a PDF/DOCX to prefill name, personal contact, skills,
+                  and education. Work email is still required and will not be
+                  auto-filled.
+                </p>
+              </div>
+              <div className="resume-autofill-actions">
+                <input
+                  type="file"
+                  accept=".pdf,.docx"
+                  onChange={handleResumeFileChange}
+                  disabled={isSubmitting || resumeParsing}
+                  className="resume-file-input"
+                />
+                <button
+                  type="button"
+                  className="add-item-button"
+                  onClick={handleParseResume}
+                  disabled={isSubmitting || resumeParsing}
+                >
+                  {resumeParsing ? "Parsing..." : "Parse & Fill"}
+                </button>
+              </div>
+            </div>
+
+            {resumeError && (
+              <div className="validation-message error">{resumeError}</div>
+            )}
+
+            {resumeSummary && (
+              <div className="resume-autofill-summary">
+                <div>
+                  <strong>Auto-filled:</strong>{" "}
+                  {resumeSummary.filledFields.length > 0
+                    ? resumeSummary.filledFields.join(", ")
+                    : "No fields were filled."}
+                </div>
+                <div>
+                  <strong>Matched skills:</strong> {resumeSummary.matchedSkills}
+                </div>
+                {resumeSummary.unmatchedSkills.length > 0 && (
+                  <div className="resume-autofill-unmatched">
+                    <strong>Unmatched skills:</strong>{" "}
+                    {resumeSummary.unmatchedSkills.join(", ")}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}        <StepCoreProfile
             formData={formData}
             departments={departments}
             roles={roles}
@@ -689,8 +1074,9 @@ const CreateEmployee: React.FC = () => {
               </button>
             ) : (
               <button
-                type="submit"
+                type="button"
                 className="submit-button"
+                onClick={handleCreateClick}
                 disabled={isSubmitting || !currentStepValidation.isValid}
               >
                 {isSubmitting ? "Creating Employee..." : "Create Employee"}
@@ -777,3 +1163,27 @@ const CreateEmployee: React.FC = () => {
 };
 
 export default CreateEmployee;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1912,3 +1912,85 @@ button:focus-visible {
     break-inside: avoid;
   }
 }
+
+/* ============================================================================
+   RESUME AUTO-FILL
+   ============================================================================ */
+
+.resume-autofill-card {
+  margin: 0 32px 24px;
+  padding: 18px 20px;
+  border-radius: 14px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.resume-autofill-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.resume-autofill-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.resume-autofill-subtitle {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  max-width: 560px;
+  line-height: 1.5;
+}
+
+.resume-autofill-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.resume-file-input {
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-primary);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.resume-autofill-summary {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: grid;
+  gap: 6px;
+}
+
+.resume-autofill-unmatched {
+  color: var(--warning);
+}
+
+@media (max-width: 768px) {
+  .resume-autofill-card {
+    margin: 0 24px 24px;
+  }
+}
+
+@media (max-width: 576px) {
+  .resume-autofill-card {
+    margin: 0 20px 20px;
+  }
+}
