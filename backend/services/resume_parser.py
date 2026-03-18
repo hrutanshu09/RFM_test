@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from io import BytesIO
 import json
@@ -29,6 +29,116 @@ SUPPORTED_CONTENT_TYPES = {
 
 GEMINI_MODEL = os.getenv("SKILL_AI_MODEL") or os.getenv("GEMINI_MODEL") or "gemini-2.5-flash"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+GENERIC_SKILL_LABEL_PATTERNS: tuple[str, ...] = (
+    r"^skills?$",
+    r"^key\s+skills?$",
+    r"^relevant\s+skills?$",
+    r"^technical\s+skills?$",
+    r"^core\s+skills?$",
+    r"^skills\s+summary$",
+    r"^competencies$",
+)
+
+SKILL_ALIASES: dict[str, tuple[str, ...]] = {
+    "javascript": ("js", "ecmascript", "java script"),
+    "typescript": ("ts", "type script"),
+    "react": ("reactjs", "react.js", "react js"),
+    "angular": ("angularjs", "angular.js", "angular js"),
+    "vue": ("vuejs", "vue.js", "vue js"),
+    "node.js": ("nodejs", "node js"),
+    "java": ("core java", "java se", "javaee", "j2ee"),
+    "spring": ("springboot", "spring boot", "spring framework"),
+    "python": ("python3", "python django", "python flask"),
+    "django": ("django framework",),
+    "flask": ("flask framework",),
+    "fastapi": ("fast api",),
+    "c#": ("csharp", "dotnet c#", ".net c#"),
+    ".net": ("dotnet", ".net core", "asp.net", "aspnet", "dot net"),
+    "c++": ("cpp", "c plus plus"),
+    "sql": ("structured query language",),
+    "postgresql": ("postgres", "psql"),
+    "mongodb": ("mongo", "mongo db"),
+    "kubernetes": ("k8s", "kube"),
+    "scikit-learn": ("sklearn", "scikit learn"),
+    "power bi": ("powerbi",),
+    "burp suite": ("burpsuite", "burp"),
+    "kali linux": ("kali",),
+    "jupyter notebook": ("jupyter", "ipynb"),
+}
+
+
+def _normalize_skill_token(value: str) -> str:
+    return "".join(ch for ch in value.lower().strip() if ch.isalnum() or ch in {"+", ".", "#"})
+
+
+def _build_skill_alias_lookup() -> dict[str, str]:
+    alias_lookup: dict[str, str] = {}
+    for canonical, variants in SKILL_ALIASES.items():
+        canonical_norm = _normalize_skill_token(canonical)
+        if not canonical_norm:
+            continue
+        alias_lookup[canonical_norm] = canonical
+        for variant in variants:
+            variant_norm = _normalize_skill_token(variant)
+            if variant_norm:
+                alias_lookup[variant_norm] = canonical
+    return alias_lookup
+
+
+_SKILL_ALIAS_LOOKUP = _build_skill_alias_lookup()
+
+
+def _is_generic_skill_label(value: str) -> bool:
+    cleaned = re.sub(r"\s+", " ", value.strip().lower()).rstrip(":")
+    if not cleaned:
+        return True
+    for pattern in GENERIC_SKILL_LABEL_PATTERNS:
+        if re.match(pattern, cleaned, flags=re.IGNORECASE):
+            return True
+    return False
+
+
+def _canonicalize_skill_name(value: str) -> str:
+    normalized = _normalize_skill_token(value)
+    if not normalized:
+        return ""
+    return _SKILL_ALIAS_LOOKUP.get(normalized, value.strip())
+
+
+def _normalize_skill_list(raw_skills: object) -> list[str]:
+    parts: list[str] = []
+    if isinstance(raw_skills, list):
+        for item in raw_skills:
+            if item is None:
+                continue
+            parts.append(str(item))
+    elif raw_skills:
+        parts.append(str(raw_skills))
+
+    candidates: list[str] = []
+    for part in parts:
+        # Split only obvious separators; avoid splitting C++/C#.
+        for token in re.split(r"\s*[,|/]\s*", part):
+            cleaned = token.strip().strip("-* ")
+            if cleaned:
+                candidates.append(cleaned)
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in candidates:
+        if _is_generic_skill_label(item):
+            continue
+        canonical = _canonicalize_skill_name(item)
+        if not canonical:
+            continue
+        key = _normalize_skill_token(canonical)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        normalized.append(canonical)
+
+    return normalized
 
 
 def _extract_pdf_text(file_bytes: bytes) -> str:
@@ -79,14 +189,17 @@ def _parse_with_gemini(resume_text: str) -> tuple[Optional[dict], Optional[str]]
 
     prompt = (
         "You are a resume parser. Extract structured data from the resume text. "
-        "Return JSON only with these keys: "
+        "Return valid JSON only with these keys: "
         "name (string or null), email (string or null), phone (string or null), "
         "linkedin (string or null), github (string or null), "
         "skills (array of strings), education (array of strings), projects (array of strings), "
-        "work_experience (array of strings)(Only company name, role and dates of start and end).. "
-        "For projects/work_experience, split into separate items (one per line or bullet). "
-        "For projects return the project name its basic features and the tech stack(if mentioned) used in the project"
-        "For education split the degree into 4 categories - Qualificaton, Specialization, Institution and Year Completed"
+        "work_experience (array of strings). "
+        "For work_experience include company, role, and dates. "
+        "For projects include project name, brief summary, and tech stack if mentioned. "
+        "For education, keep one entry per degree/qualification. "
+        "IMPORTANT for skills: include only concrete skill names and technologies. "
+        "Do NOT include section labels or headings like Skills, Key Skills, Relevant Skills, Technical Skills, Competencies. "
+        "Normalize common variants to canonical names where possible (e.g., React.js -> React, ReactJS -> React, NodeJS -> Node.js, Python (Django) -> Python). "
         "If a field is missing, use null for scalars and [] for arrays. "
         "Do not include any extra keys or commentary.\n\n"
         "Resume text:\n" + trimmed
@@ -128,7 +241,7 @@ def parse_resume_bytes(
         "phone": data.get("phone"),
         "linkedin": data.get("linkedin"),
         "github": data.get("github"),
-        "skills": data.get("skills") or [],
+        "skills": _normalize_skill_list(data.get("skills") or []),
         "education": data.get("education") or [],
         "projects": data.get("projects") or [],
         "work_experience": data.get("work_experience") or [],
@@ -136,3 +249,5 @@ def parse_resume_bytes(
         "parser_error": None,
     }
     return payload, None, None
+
+

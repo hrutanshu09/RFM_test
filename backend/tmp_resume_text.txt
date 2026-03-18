@@ -1,0 +1,53 @@
+Hrutanshu Kurankar
+Sai Avishkar, DSK Vishwa Road, Dhayari, Pune 411041 — /ne+91-7410736635 — 
+hrutanshukurankar9@gmail.com — /♀nednlinkedin.com/in/hrutanshu-kurankar-a100882a6
+Profile Summary
+Computer Engineering student with a genuine passion for leveraging technology to solve real-world
+problems. Looking for opportunities to learn and grow especially in areas like AI/ML, secure system
+design, data analysis, and building reliable software. Through hands-on work with advanced tools and
+real-world digital challenges, I aim to develop strong solutions that are both impactful and trustworthy.
+Education
+• Marathwada Mitramandal College of Engineering 2022 – 2026
+Bachelor of Engineering in Computer Engineering Pune
+Experience
+Resecurity – Cyber Threat Intelligence Analyst Intern Jan 2025 – May 2025
+Internship
+• Contributed to cyber threat intelligence gathering and fraud investigations by analyzing data leaks
+and identifying threat actors through dark web reconnaissance.
+• Mapped domain activity across multiple countries to uncover malicious infrastructure, and documented
+the deployment of vulnerable applications and remote access tools (RATs).
+• Developed visualizations of cyberattack trends and compiled internal cybersecurity knowledge re-
+sources for training and research purposes.
+Ebix T echnologies Ltd. – Intern Jun 2025 – Aug 2025
+Internship
+• Gained theoretical and practical knowledge of encryption, decryption, hashing, and key management,
+with hands-on exposure to AES, RSA, etc.
+• Developed Spring Boot–based secure login/signup modules with client-side encryption integration.
+• Built secure AI powered interfaces over WhatsApp and web for communication between field and
+bank agents in a loan collections system, integrating Large Language Models (LLMs) and Retrieval-
+Augmented Generation (RAG).
+Projects
+• F ake News Predictor
+Built an NLP-based fake news detection system using PassiveAggressiveClassifier with TF-IDF vec-
+torization and text preprocessing to enhance accuracy, and developed a responsive web interface using
+React and Node.js for seamless user experience.
+• Real Estate Analysis Chatbot
+Built an AI real estate analysis chatbot that processes user queries to extract location and time-related
+information, analyzes historical market data to identify trends, and generates automated summaries,
+with a backend data processing pipeline and iteractive web interface using React.js and Django.
+• Customer Lifetime V alue Prediction
+Created a predictive model for Customer Lifetime Value (CLV) using LightGBM Regressor, leveraging
+demographic, behavioral, and financial data. Enhanced prediction accuracy through data preprocess-
+ing and feature engineering techniques.
+• F ootball Goal Analysis System
+Developed a system to analyze football matches using the Expected Goals (xG) model. Implemented
+xG metrics to assess the quality of goal-scoring opportunities and analyzed match data to deliver
+insights on team and player performance.
+Skills
+• Languages: Python, C++, Java, Javascript
+• F rameworks/Libraries: SpringBoot, React.js, Node.js, scikit-learn, Pandas, NumPy, Matplotlib,
+NLTK
+• T ools: Nmap, Metasploit, Wireshark, Burp-suite, Kali Linux, GitHub, Jupyter Notebook
+Certifications & Courses
+• MongoDB: Introduction to MongoDB
+• Cisco: Introduction to Cyber Security

@@ -6,6 +6,7 @@ import {
   ClipboardList,
   Users,
   Briefcase,
+  Search,
   Menu,
   X,
 } from "lucide-react";
@@ -39,6 +40,11 @@ const TASidebar: React.FC<TASidebarProps> = ({
       to: "/ta/resource-pool",
       label: "Resource Pool",
       icon: <Users size={20} />,
+    },
+    {
+      to: "/ta/resume-screening",
+      label: "Resume Screening",
+      icon: <Search size={20} />,
     },
     {
       to: "/ta/projects",
@@ -86,3 +92,5 @@ const TASidebar: React.FC<TASidebarProps> = ({
 };
 
 export default TASidebar;
+
+

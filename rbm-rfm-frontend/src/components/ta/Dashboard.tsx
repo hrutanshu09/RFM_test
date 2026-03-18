@@ -28,6 +28,7 @@ const viewLabels: Record<string, string> = {
   "my-requisitions": "My Requisitions",
   "requisition-detail": "Requisition Detail",
   "resource-pool": "Resource Pool",
+  "resume-screening": "Resume Screening",
   reports: "Reports",
   "audit-logs": "Audit Logs",
 };
@@ -220,6 +221,9 @@ const TADashboard: React.FC = () => {
     if (location.pathname.startsWith("/ta/resource-pool")) {
       return viewLabels["resource-pool"];
     }
+    if (location.pathname.startsWith("/ta/resume-screening")) {
+      return viewLabels["resume-screening"];
+    }
     return viewLabels["dashboard"];
   }, [location.pathname]);
 
@@ -397,3 +401,5 @@ const TADashboard: React.FC = () => {
 };
 
 export default TADashboard;
+
+
