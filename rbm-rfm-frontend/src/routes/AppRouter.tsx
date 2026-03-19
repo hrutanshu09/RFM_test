@@ -20,6 +20,7 @@ import MyRequisitions from "../components/ta/MyRequisitions";
 import RequisitionDetail from "../components/ta/RequisitionDetail";
 import ResourcePool from "../components/ta/ResourcePool";
 import TAResumeScreening from "../components/ta/ResumeScreening";
+import TAResumeCandidateDetails from "../components/ta/ResumeCandidateDetails";
 import ManagerDashboard from "../components/manager/ManagerDashboard";
 import ManagerRequisitionDetails from "../components/manager/ManagerRequisitionDetails";
 import OwnerDashboard from "../components/owner/OwnerDashboard";
@@ -170,6 +171,7 @@ export const AppRouter = () => {
           <Route path="my-requisitions" element={<MyRequisitions />} />
           <Route path="resource-pool" element={<ResourcePool />} />
           <Route path="resume-screening" element={<TAResumeScreening />} />
+          <Route path="resume-screening/:candidateId" element={<TAResumeCandidateDetails />} />
         </Route>
         {/* More specific manager route first so /manager/requisitions/:id matches */}
         <Route
@@ -226,6 +228,9 @@ export const AppRouter = () => {
     </BrowserRouter>
   );
 };
+
+
+
 
 
 

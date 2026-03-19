@@ -364,13 +364,6 @@ def _score_skill(skill: str, parsed: dict[str, Any]) -> tuple[int, list[str], di
             "matched_tokens": [],
         }
 
-    raw_skills = parsed.get("skills") or []
-    parsed_skill_set = {
-        _canonicalize_skill(str(item))
-        for item in raw_skills
-        if str(item).strip() and not _is_generic_skill_label(str(item))
-    }
-
     buckets = _extract_section_buckets(parsed)
     matched_sections: list[str] = []
     evidence: list[str] = []
@@ -394,7 +387,15 @@ def _score_skill(skill: str, parsed: dict[str, Any]) -> tuple[int, list[str], di
         if section_matched:
             matched_sections.append(section)
 
-    skills_section_match = normalized_skill in parsed_skill_set
+    skills_section_match = False
+    for line in buckets.get("skills", []):
+        matches = _matched_variants_in_line(line, normalized_skill)
+        if not matches:
+            continue
+        skills_section_match = True
+        matched_tokens.update(matches)
+        break
+
     if skills_section_match:
         matched_sections.insert(0, "skills")
 
@@ -521,6 +522,8 @@ def process_job(job_id: str, files: Optional[list[dict[str, Any]]] = None) -> No
             _increment_processed(job_id)
             continue
 
+        buckets = _extract_section_buckets(payload)
+
         primary_scores = []
         secondary_scores = []
         skill_results = []
@@ -535,6 +538,12 @@ def process_job(job_id: str, files: Optional[list[dict[str, Any]]] = None) -> No
                     "evidence": evidence,
                     "is_primary": True,
                     "debug": debug,
+                    "debug_buckets": {
+                        "skills": buckets.get("skills", []),
+                        "projects": buckets.get("projects", []),
+                        "work_experience": buckets.get("work_experience", []),
+                        "education": buckets.get("education", []),
+                    },
                 }
             )
 
@@ -548,6 +557,12 @@ def process_job(job_id: str, files: Optional[list[dict[str, Any]]] = None) -> No
                     "evidence": evidence,
                     "is_primary": False,
                     "debug": debug,
+                    "debug_buckets": {
+                        "skills": buckets.get("skills", []),
+                        "projects": buckets.get("projects", []),
+                        "work_experience": buckets.get("work_experience", []),
+                        "education": buckets.get("education", []),
+                    },
                 }
             )
 
@@ -574,6 +589,13 @@ def process_job(job_id: str, files: Optional[list[dict[str, Any]]] = None) -> No
     results = final_job.get("results", [])
     results.sort(key=lambda item: item.get("overall_match_percent", 0), reverse=True)
     _update_job(job_id, status="completed", results=results, queued_files=[])
+
+
+
+
+
+
+
 
 
 

@@ -1,0 +1,128 @@
+.ta-candidate-details {
+  padding: 24px;
+  display: grid;
+  gap: 20px;
+}
+
+.candidate-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.candidate-header h2 {
+  margin: 0;
+}
+
+.candidate-header p {
+  margin: 6px 0 0;
+  color: #5b6577;
+}
+
+.candidate-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  background: #ffffff;
+  border: 1px solid #e3e7f0;
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.candidate-summary .summary-label {
+  display: block;
+  font-size: 12px;
+  color: #5b6577;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.candidate-summary .summary-value {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.candidate-card {
+  background: #ffffff;
+  border: 1px solid #e3e7f0;
+  border-radius: 16px;
+  padding: 20px;
+}
+
+.candidate-empty {
+  padding: 20px;
+  color: #8b93a7;
+}
+
+.candidate-skill-grid {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.candidate-skill-card {
+  border: 1px solid #eef1f7;
+  border-radius: 14px;
+  padding: 16px;
+  background: #f7f9ff;
+}
+
+.skill-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.skill-head h4 {
+  margin: 6px 0 0;
+}
+
+.skill-score {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1f4b99;
+}
+
+.skill-pill {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: #e7efff;
+  color: #1f4b99;
+}
+
+.skill-pill.secondary {
+  background: #f5f0ff;
+  color: #5a3db5;
+}
+
+.skill-meta {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #5b6577;
+}
+
+.evidence-list {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.evidence-item {
+  background: #ffffff;
+  border: 1px solid #e4e8f2;
+  border-radius: 10px;
+  padding: 10px;
+  font-size: 13px;
+  color: #2d3648;
+}
+
+.evidence-item.empty {
+  color: #8b93a7;
+}

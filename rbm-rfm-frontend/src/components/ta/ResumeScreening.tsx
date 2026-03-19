@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { apiClient } from "../../api/client";
 import "../../styles/ta/ta-resume-screening.css";
 
@@ -33,11 +34,25 @@ interface CandidateResult {
   candidate_id: string;
   name: string;
   overall_match_percent: number;
-  skills: { skill: string; percent: number; evidence: string[]; is_primary: boolean }[];
+  skills: {
+    skill: string;
+    percent: number;
+    evidence: string[];
+    is_primary: boolean;
+    debug?: {
+      base?: number;
+      occurrence_bonus?: number;
+      matched_in_sections?: string[];
+      alias_used?: boolean;
+      evidence_count?: number;
+      matched_tokens?: string[];
+    };
+  }[];
   source_filename?: string;
 }
 
 const TAResumeScreening: React.FC = () => {
+  const navigate = useNavigate();
   const [taxonomy, setTaxonomy] = useState<string[]>([]);
   const [primarySkills, setPrimarySkills] = useState<string[]>([]);
   const [secondarySkills, setSecondarySkills] = useState<string[]>([]);
@@ -54,7 +69,6 @@ const TAResumeScreening: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [selectedCandidate, setSelectedCandidate] = useState<CandidateResult | null>(null);
 
   useEffect(() => {
     const loadTaxonomy = async () => {
@@ -259,6 +273,15 @@ const TAResumeScreening: React.FC = () => {
         </div>
       </header>
 
+      <div className="formula-card">
+        <div className="formula-title">Ranking Formula</div>
+        <div className="formula-body">
+          Per-skill score: Skills section = 70, Projects/Work = 45, Education = 30,
+          Not found = 0. Overall score is the weighted average of all skills
+          (Primary weight 1.0, Secondary weight 0.5).
+        </div>
+      </div>
+
       <div className="screening-steps">
         {steps.map((step) => (
           <div
@@ -331,7 +354,7 @@ const TAResumeScreening: React.FC = () => {
 
           <button
             type="button"
-            className="primary-btn"
+            className="primary-btn start-processing-btn"
             onClick={startProcessing}
             disabled={isProcessing || !jobId}
           >
@@ -340,6 +363,7 @@ const TAResumeScreening: React.FC = () => {
         </div>
       </div>
 
+      {hasStarted && (
       <div className="ta-screening-card">
         <div className="progress-section">
           <div className="progress-label">
@@ -352,18 +376,10 @@ const TAResumeScreening: React.FC = () => {
             />
           </div>
         </div>
-
-        <button
-          type="button"
-          className="secondary-btn"
-          onClick={refreshResults}
-          disabled={!jobId}
-        >
-          Refresh Results
-        </button>
       </div>
+    )}
 
-      <div className="ta-screening-card results-card">
+    <div className="ta-screening-card results-card">
         <div className="results-header">
           <h3>Ranked Candidates</h3>
           <span>{isCompleted ? results.length : 0} candidates</span>
@@ -399,7 +415,17 @@ const TAResumeScreening: React.FC = () => {
                 type="button"
                 key={candidate.candidate_id}
                 className="result-row"
-                onClick={() => setSelectedCandidate(candidate)}
+                onClick={() =>
+                  navigate(`/ta/resume-screening/${candidate.candidate_id}`, {
+                    state: {
+                      candidate,
+                      jobId,
+                      jobTitle,
+                      primarySkills,
+                      secondarySkills,
+                    },
+                  })
+                }
               >
                 <div className="rank">#{index + 1}</div>
                 <div className="result-main">
@@ -435,56 +461,6 @@ const TAResumeScreening: React.FC = () => {
           </div>
         )}
       </div>
-
-      {selectedCandidate && (
-        <div
-          className="candidate-drawer-overlay"
-          onClick={() => setSelectedCandidate(null)}
-        >
-          <div
-            className="candidate-drawer"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="drawer-header">
-              <div>
-                <h3>{selectedCandidate.name}</h3>
-                <p>{selectedCandidate.source_filename || "resume"}</p>
-              </div>
-              <button
-                type="button"
-                className="secondary-btn"
-                onClick={() => setSelectedCandidate(null)}
-              >
-                Close
-              </button>
-            </div>
-            <div className="drawer-score">
-              Overall match: <strong>{selectedCandidate.overall_match_percent}%</strong>
-            </div>
-            <div className="drawer-skills">
-              {selectedCandidate.skills.map((skill) => (
-                <div key={skill.skill} className="drawer-skill">
-                  <div className="drawer-skill-title">
-                    <span>{skill.skill}</span>
-                    <span className="drawer-skill-score">{skill.percent}%</span>
-                  </div>
-                  <div className="drawer-evidence">
-                    {skill.evidence.length > 0 ? (
-                      skill.evidence.map((item, idx) => (
-                        <div key={`${skill.skill}-${idx}`} className="evidence-item">
-                          {item}
-                        </div>
-                      ))
-                    ) : (
-                      <div className="evidence-item empty">No evidence captured.</div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
     </section>
   );
 };
@@ -508,22 +484,51 @@ const SkillInput: React.FC<SkillInputProps> = ({
 }) => {
   const [value, setValue] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const blurTimeout = useRef<number | null>(null);
 
   const filtered = useMemo(() => {
     const term = value.trim().toLowerCase();
-    if (!term) return [];
-    return taxonomy
-      .filter((skill) => !skills.includes(skill))
-      .filter((skill) => skill.toLowerCase().includes(term))
-      .slice(0, 6);
+    const available = taxonomy.filter((skill) => !skills.includes(skill));
+    const list = term
+      ? available.filter((skill) => skill.toLowerCase().includes(term))
+      : available;
+    return list.slice(0, 10);
   }, [taxonomy, skills, value]);
+
+  useEffect(() => {
+    setActiveIndex(filtered.length > 0 ? 0 : -1);
+  }, [filtered.length]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (disabled) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (!showSuggestions) setShowSuggestions(true);
+      setActiveIndex((prev) => Math.min(filtered.length - 1, prev + 1));
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIndex((prev) => Math.max(0, prev - 1));
+      return;
+    }
     if (event.key === "Enter" || event.key === ",") {
       event.preventDefault();
+      if (showSuggestions && activeIndex >= 0 && filtered[activeIndex]) {
+        onAdd(filtered[activeIndex], () => setValue(""));
+        setShowSuggestions(true);
+        inputRef.current?.focus();
+        return;
+      }
       onAdd(value, () => setValue(""));
+      setShowSuggestions(true);
+      inputRef.current?.focus();
+    }
+    if (event.key === "Escape") {
+      setShowSuggestions(false);
+      setActiveIndex(-1);
     }
   };
 
@@ -545,8 +550,12 @@ const SkillInput: React.FC<SkillInputProps> = ({
       <label>{label}</label>
       <div className="tag-input">
         <input
+          ref={inputRef}
           value={value}
-          onChange={(event) => setValue(event.target.value)}
+          onChange={(event) => {
+            setValue(event.target.value);
+            setShowSuggestions(true);
+          }}
           onKeyDown={handleKeyDown}
           onFocus={handleFocus}
           onBlur={handleBlur}
@@ -556,7 +565,11 @@ const SkillInput: React.FC<SkillInputProps> = ({
         <button
           type="button"
           className="secondary-btn"
-          onClick={() => onAdd(value, () => setValue(""))}
+          onClick={() => {
+            onAdd(value, () => setValue(""));
+            setShowSuggestions(true);
+            inputRef.current?.focus();
+          }}
           disabled={disabled}
         >
           Add
@@ -564,15 +577,17 @@ const SkillInput: React.FC<SkillInputProps> = ({
       </div>
       {showSuggestions && filtered.length > 0 && !disabled && (
         <div className="skill-suggestions">
-          {filtered.map((skill) => (
+          {filtered.map((skill, index) => (
             <button
               type="button"
               key={skill}
-              className="suggestion-item"
+              className={`suggestion-item ${index === activeIndex ? "active" : ""}`}
               onClick={() => {
                 onAdd(skill, () => setValue(""));
-                setShowSuggestions(false);
+                setShowSuggestions(true);
+                inputRef.current?.focus();
               }}
+              onMouseEnter={() => setActiveIndex(index)}
             >
               {skill}
             </button>
@@ -594,4 +609,19 @@ const SkillInput: React.FC<SkillInputProps> = ({
 };
 
 export default TAResumeScreening;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
