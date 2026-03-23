@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from io import BytesIO
 import json
@@ -7,9 +7,9 @@ import re
 from typing import Optional
 
 try:
-    from pypdf import PdfReader
+    import fitz  # PyMuPDF
 except Exception:  # pragma: no cover - optional dependency at runtime
-    PdfReader = None
+    fitz = None
 
 try:
     import google.generativeai as genai
@@ -118,7 +118,6 @@ def _normalize_skill_list(raw_skills: object) -> list[str]:
 
     candidates: list[str] = []
     for part in parts:
-        # Split only obvious separators; avoid splitting C++/C#.
         for token in re.split(r"\s*[,|/]\s*", part):
             cleaned = token.strip().strip("-* ")
             if cleaned:
@@ -141,17 +140,167 @@ def _normalize_skill_list(raw_skills: object) -> list[str]:
     return normalized
 
 
-def _extract_pdf_text(file_bytes: bytes) -> str:
-    if PdfReader is None:
-        return ""
-    reader = PdfReader(BytesIO(file_bytes))
-    pages = []
-    for page in reader.pages:
-        try:
-            pages.append(page.extract_text() or "")
-        except Exception:
-            pages.append("")
-    return "\n".join(pages)
+def _normalize_block_text(text: str) -> str:
+    cleaned = text.replace("\r", "\n")
+    cleaned = "\n".join(line.strip() for line in cleaned.splitlines() if line.strip())
+    return cleaned.strip()
+
+
+def _looks_like_name_line(line: str) -> bool:
+    parts = [p for p in line.replace(".", " ").split() if p]
+    if len(parts) < 2 or len(parts) > 4:
+        return False
+    alpha_parts = [part for part in parts if part.isalpha()]
+    return bool(alpha_parts) and all(part[:1].isupper() and part[1:].islower() for part in alpha_parts)
+
+
+def _score_resume_start(text: str) -> float:
+    if not text:
+        return 0.0
+
+    lines = [line.strip().lower() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return 0.0
+
+    first_window = lines[:14]
+    score = 0.0
+
+    first_line = text.splitlines()[0].strip() if text.splitlines() else ""
+    if _looks_like_name_line(first_line):
+        score += 6.0
+
+    strong_headers = (
+        "profile",
+        "summary",
+        "objective",
+        "professional experience",
+        "work experience",
+        "experience",
+        "projects",
+    )
+    sidebar_headers = (
+        "personal information",
+        "contact",
+        "key skills",
+        "skills",
+        "technical skills",
+        "tools",
+    )
+
+    for idx, line in enumerate(first_window):
+        weight = max(1.0, 4.0 - (idx * 0.2))
+        if any(h in line for h in strong_headers):
+            score += 2.0 * weight
+        if any(h in line for h in sidebar_headers):
+            score -= 1.2 * weight
+
+    if "education" in "\n".join(first_window):
+        score += 1.0
+
+    return score
+
+
+def _reconstruct_page_text_from_blocks(blocks: list[tuple]) -> tuple[str, str, dict[str, object]]:
+    text_blocks: list[dict[str, object]] = []
+    for block in blocks:
+        if len(block) < 5:
+            continue
+        x0, y0, x1, y1, text = block[0], block[1], block[2], block[3], block[4]
+        normalized_text = _normalize_block_text(str(text or ""))
+        if not normalized_text:
+            continue
+        text_blocks.append(
+            {
+                "x0": float(x0),
+                "y0": float(y0),
+                "x1": float(x1),
+                "y1": float(y1),
+                "x_center": (float(x0) + float(x1)) / 2.0,
+                "text": normalized_text,
+            }
+        )
+
+    if not text_blocks:
+        return "", "single_column", {"x_gap": 0.0, "column_split": 0.0, "column_order": "left_to_right"}
+
+    sorted_by_x = sorted(text_blocks, key=lambda b: b["x_center"])
+    min_x = float(sorted_by_x[0]["x_center"])
+    max_x = float(sorted_by_x[-1]["x_center"])
+    x_gap = max_x - min_x
+
+    is_multi = x_gap > 140.0 and len(sorted_by_x) >= 6
+    layout_mode = "multi_column" if is_multi else "single_column"
+
+    if not is_multi:
+        ordered = sorted(text_blocks, key=lambda b: (float(b["y0"]), float(b["x0"])))
+        text = "\n".join(str(b["text"]) for b in ordered)
+        return text, layout_mode, {"x_gap": x_gap, "column_split": 0.0, "column_order": "left_to_right"}
+
+    column_split = (min_x + max_x) / 2.0
+    left_blocks = [b for b in text_blocks if float(b["x_center"]) <= column_split]
+    right_blocks = [b for b in text_blocks if float(b["x_center"]) > column_split]
+
+    left_sorted = sorted(left_blocks, key=lambda b: (float(b["y0"]), float(b["x0"])))
+    right_sorted = sorted(right_blocks, key=lambda b: (float(b["y0"]), float(b["x0"])))
+
+    left_text = "\n".join(str(b["text"]) for b in left_sorted)
+    right_text = "\n".join(str(b["text"]) for b in right_sorted)
+
+    left_then_right = left_text + ("\n\n" if left_text and right_text else "") + right_text
+    right_then_left = right_text + ("\n\n" if left_text and right_text else "") + left_text
+
+    score_ltr = _score_resume_start(left_then_right)
+    score_rtl = _score_resume_start(right_then_left)
+    use_rtl = score_rtl > score_ltr
+
+    return (
+        right_then_left if use_rtl else left_then_right,
+        layout_mode,
+        {
+            "x_gap": x_gap,
+            "column_split": column_split,
+            "column_order": "right_to_left" if use_rtl else "left_to_right",
+            "score_ltr": score_ltr,
+            "score_rtl": score_rtl,
+        },
+    )
+
+
+def _extract_pdf_text_pymupdf(file_bytes: bytes) -> tuple[str, dict[str, object]]:
+    if fitz is None:
+        return "", {"extractor": "pymupdf_unavailable"}
+
+    reconstructed_pages: list[str] = []
+    page_stats: list[dict[str, object]] = []
+    multi_column_pages = 0
+
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
+    try:
+        for idx, page in enumerate(doc):
+            blocks = page.get_text("blocks")
+            reconstructed, layout_mode, meta = _reconstruct_page_text_from_blocks(blocks)
+            reconstructed_pages.append(reconstructed)
+            if layout_mode == "multi_column":
+                multi_column_pages += 1
+            page_stats.append(
+                {
+                    "page": idx + 1,
+                    "layout_mode": layout_mode,
+                    "x_gap": round(float(meta.get("x_gap", 0.0)), 2),
+                    "column_split": round(float(meta.get("column_split", 0.0)), 2),
+                    "column_order": meta.get("column_order", "left_to_right"),
+                }
+            )
+    finally:
+        doc.close()
+
+    text = "\n".join(reconstructed_pages)
+    return text, {
+        "extractor": "pymupdf",
+        "layout_mode": "multi_column" if multi_column_pages > 0 else "single_column",
+        "page_stats": page_stats,
+        "page_count": len(page_stats),
+    }
 
 
 def _extract_docx_text(file_bytes: bytes) -> str:
@@ -159,6 +308,54 @@ def _extract_docx_text(file_bytes: bytes) -> str:
         return ""
     doc = Document(BytesIO(file_bytes))
     return "\n".join(p.text for p in doc.paragraphs if p.text)
+
+
+def _clean_extracted_text(text: str) -> str:
+    cleaned = text.replace("\r\n", "\n").replace("\r", "\n").replace("\u00ad", "")
+
+    replacement_map = {
+        "\u00d3": "-",
+        "\u00af": "-",
+    }
+    for source, target in replacement_map.items():
+        cleaned = cleaned.replace(source, target)
+
+    cleaned = re.sub(r"([A-Za-z])\-\n([A-Za-z])", r"\1\2", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def _extract_text_for_resume_with_meta(
+    file_bytes: bytes,
+    content_type: str,
+) -> tuple[Optional[str], Optional[str], Optional[str], dict[str, object]]:
+    if content_type not in SUPPORTED_CONTENT_TYPES:
+        return None, "Only PDF and DOCX are supported.", "unsupported", {}
+
+    metadata: dict[str, object] = {}
+
+    if content_type == "application/pdf":
+        text, metadata = _extract_pdf_text_pymupdf(file_bytes)
+        if not text and fitz is None:
+            return None, "PyMuPDF is not installed. Install with: pip install pymupdf", "extract", metadata
+    else:
+        text = _extract_docx_text(file_bytes)
+        metadata = {"extractor": "python-docx", "layout_mode": "single_column"}
+
+    if not text:
+        return None, "Could not extract text from the file.", "extract", metadata
+
+    cleaned = _clean_extracted_text(text)
+    if not cleaned:
+        return None, "Could not extract text from the file.", "extract", metadata
+
+    metadata["chars_extracted"] = len(cleaned)
+    return cleaned, None, None, metadata
+
+
+def extract_text_for_resume(file_bytes: bytes, content_type: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    text, error, error_type, _ = _extract_text_for_resume_with_meta(file_bytes, content_type)
+    return text, error, error_type
 
 
 def _extract_json_from_text(text: str) -> Optional[dict]:
@@ -219,16 +416,9 @@ def parse_resume_bytes(
     file_bytes: bytes,
     content_type: str,
 ) -> tuple[Optional[dict], Optional[str], Optional[str]]:
-    if content_type not in SUPPORTED_CONTENT_TYPES:
-        return None, "Only PDF and DOCX are supported.", "unsupported"
-
-    if content_type == "application/pdf":
-        text = _extract_pdf_text(file_bytes)
-    else:
-        text = _extract_docx_text(file_bytes)
-
-    if not text:
-        return None, "Could not extract text from the file.", "extract"
+    text, error, error_type, extraction_meta = _extract_text_for_resume_with_meta(file_bytes, content_type)
+    if error or not text:
+        return None, error, error_type
 
     data, error = _parse_with_gemini(text)
     if not data:
@@ -236,6 +426,8 @@ def parse_resume_bytes(
 
     payload = {
         "parser_used": GEMINI_MODEL,
+        "extractor_used": extraction_meta.get("extractor"),
+        "layout_mode": extraction_meta.get("layout_mode"),
         "name": data.get("name"),
         "email": data.get("email"),
         "phone": data.get("phone"),
@@ -249,5 +441,3 @@ def parse_resume_bytes(
         "parser_error": None,
     }
     return payload, None, None
-
-

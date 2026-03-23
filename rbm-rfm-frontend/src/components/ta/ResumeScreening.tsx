@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { apiClient } from "../../api/client";
 import "../../styles/ta/ta-resume-screening.css";
 
+const SCREENING_STORAGE_KEY = "ta_resume_screening_state_v1";
+
 interface JobCreatePayload {
   title?: string;
   primary_skills: string[];
@@ -51,6 +53,17 @@ interface CandidateResult {
   source_filename?: string;
 }
 
+interface PersistedScreeningState {
+  jobTitle: string;
+  jobId: string | null;
+  jobStatus: string | null;
+  jobProgress: { processed: number; total: number };
+  primarySkills: string[];
+  secondarySkills: string[];
+  results: CandidateResult[];
+  errors: { filename: string; error: string }[];
+}
+
 const TAResumeScreening: React.FC = () => {
   const navigate = useNavigate();
   const [taxonomy, setTaxonomy] = useState<string[]>([]);
@@ -69,6 +82,9 @@ const TAResumeScreening: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [isHydrated, setIsHydrated] = useState(false);
+  const [showFormulaInfo, setShowFormulaInfo] = useState(false);
+  const formulaRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const loadTaxonomy = async () => {
@@ -80,6 +96,54 @@ const TAResumeScreening: React.FC = () => {
       }
     };
     loadTaxonomy();
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = window.sessionStorage.getItem(SCREENING_STORAGE_KEY);
+      if (raw) {
+        const cached = JSON.parse(raw) as PersistedScreeningState;
+        setJobTitle(cached.jobTitle ?? "");
+        setJobId(cached.jobId ?? null);
+        setJobStatus(cached.jobStatus ?? null);
+        setJobProgress(cached.jobProgress ?? { processed: 0, total: 0 });
+        setPrimarySkills(Array.isArray(cached.primarySkills) ? cached.primarySkills : []);
+        setSecondarySkills(Array.isArray(cached.secondarySkills) ? cached.secondarySkills : []);
+        setResults(Array.isArray(cached.results) ? cached.results : []);
+        setErrors(Array.isArray(cached.errors) ? cached.errors : []);
+      }
+    } catch {
+      // Ignore stale/corrupt session state.
+    } finally {
+      setIsHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+
+    const snapshot: PersistedScreeningState = {
+      jobTitle,
+      jobId,
+      jobStatus,
+      jobProgress,
+      primarySkills,
+      secondarySkills,
+      results,
+      errors,
+    };
+    window.sessionStorage.setItem(SCREENING_STORAGE_KEY, JSON.stringify(snapshot));
+  }, [isHydrated, jobTitle, jobId, jobStatus, jobProgress, primarySkills, secondarySkills, results, errors]);
+
+  useEffect(() => {
+    const onPointerDown = (event: MouseEvent) => {
+      if (!formulaRef.current) return;
+      if (!formulaRef.current.contains(event.target as Node)) {
+        setShowFormulaInfo(false);
+      }
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
   }, []);
 
   const taxonomyMap = useMemo(() => {
@@ -262,7 +326,31 @@ const TAResumeScreening: React.FC = () => {
     <section className="ta-screening">
       <header className="ta-screening-header">
         <div>
-          <h2>Resume Screening</h2>
+          <div className="title-row" ref={formulaRef}>
+            <h2>Resume Screening</h2>
+            <button
+              type="button"
+              className="info-btn"
+              aria-label="Show ranking formula"
+              onClick={() => setShowFormulaInfo((prev) => !prev)}
+            >
+              i
+            </button>
+            {showFormulaInfo && (
+              <div className="formula-popover">
+                <div className="formula-title">How Ranking Works</div>
+                <div className="formula-body">
+                  Per-skill base: Skills section = 70, Projects/Work/Education = 50, Not found = 0.
+                  Bonus: +5 for each unique matched evidence line (cap 95 per skill).
+                  Overall score is weighted average: Primary skills x1.0, Secondary skills x0.5.
+                </div>
+                <div className="formula-example">
+                  Example: React is in Skills and one project line {"->"} 70 + 5 = 75.
+                  If Kubernetes is not found anywhere {"->"} 0.
+                </div>
+              </div>
+            )}
+          </div>
           <p>Upload resumes, select skills, and rank candidates by match %.</p>
         </div>
         <div className="ta-screening-status">
@@ -272,15 +360,6 @@ const TAResumeScreening: React.FC = () => {
           {jobId && <span className="job-id">Job: {jobId}</span>}
         </div>
       </header>
-
-      <div className="formula-card">
-        <div className="formula-title">Ranking Formula</div>
-        <div className="formula-body">
-          Per-skill score: Skills section = 70, Projects/Work = 45, Education = 30,
-          Not found = 0. Overall score is the weighted average of all skills
-          (Primary weight 1.0, Secondary weight 0.5).
-        </div>
-      </div>
 
       <div className="screening-steps">
         {steps.map((step) => (

@@ -8,7 +8,7 @@ import threading
 from typing import Any, Optional
 import uuid
 
-from services.resume_parser import parse_resume_bytes
+from services.resume_parser import extract_text_for_resume, parse_resume_bytes
 
 TAXONOMY_PATH = Path(__file__).resolve().parents[1] / "data" / "skills_taxonomy.json"
 
@@ -28,9 +28,12 @@ GENERIC_SKILL_LABEL_PATTERNS: tuple[str, ...] = (
 SECTION_HEADER_PATTERNS: dict[str, tuple[str, ...]] = {
     "skills": (
         r"^skills?$",
+        r"^key\s+skills?$",
+        r"^relevant\s+skills?$",
         r"^technical\s+skills?$",
         r"^core\s+skills?$",
-        r""
+        r"^skills\s+summary$",
+        r"^competencies$",
     ),
     "projects": (
         r"^projects?$",
@@ -208,6 +211,50 @@ def _is_generic_skill_label(value: str) -> bool:
     return False
 
 
+def _stringify_bucket_value(value: Any) -> str:
+    if isinstance(value, dict):
+        name = str(value.get("name") or "").strip()
+        summary = str(value.get("summary") or "").strip()
+        tech_stack = value.get("tech_stack")
+        tech_text = ""
+        if isinstance(tech_stack, list):
+            tech_items = [str(item).strip() for item in tech_stack if str(item).strip()]
+            if tech_items:
+                tech_text = ", ".join(tech_items)
+        elif tech_stack:
+            tech_text = str(tech_stack).strip()
+
+        parts: list[str] = []
+        if name:
+            parts.append(name)
+        if summary:
+            parts.append(summary)
+        if tech_text:
+            parts.append(f"Tech Stack: {tech_text}")
+        return " - ".join(parts).strip()
+
+    return str(value).strip()
+
+
+def _evidence_fingerprint(value: str) -> str:
+    lowered = value.lower()
+    lowered = re.sub(r"[^a-z0-9+#.]+", " ", lowered)
+    return re.sub(r"\s+", " ", lowered).strip()
+
+
+def _is_duplicate_evidence(candidate: str, seen: set[str]) -> bool:
+    fp = _evidence_fingerprint(candidate)
+    if not fp:
+        return True
+    if fp in seen:
+        return True
+    # Treat contained snippets as duplicates of an already counted line.
+    for existing in seen:
+        if fp in existing or existing in fp:
+            return True
+    return False
+
+
 def load_taxonomy() -> list[str]:
     global _TAXONOMY_CACHE
     if _TAXONOMY_CACHE is not None:
@@ -292,9 +339,13 @@ def _increment_processed(job_id: str) -> None:
 def _extract_section_buckets(parsed: dict[str, Any]) -> dict[str, list[str]]:
     buckets: dict[str, list[str]] = {
         "skills": [],
+        "skills_raw_section": [],
         "projects": [],
+        "projects_raw_section": [],
         "work_experience": [],
+        "work_experience_raw_section": [],
         "education": [],
+        "education_raw_section": [],
     }
 
     for key in ("skills", "projects", "work_experience", "education"):
@@ -303,24 +354,29 @@ def _extract_section_buckets(parsed: dict[str, Any]) -> dict[str, list[str]]:
             for value in values:
                 if value is None:
                     continue
-                text = str(value).strip()
+                text = _stringify_bucket_value(value)
                 if not text:
                     continue
                 if key == "skills" and _is_generic_skill_label(text):
                     continue
                 buckets[key].append(text)
         elif values:
-            text = str(values).strip()
+            text = _stringify_bucket_value(values)
             if not text:
                 continue
             if key == "skills" and _is_generic_skill_label(text):
                 continue
             buckets[key].append(text)
 
-    raw_text_preview = str(parsed.get("raw_text_preview") or "")
-    if raw_text_preview:
+    raw_text_source = str(
+        parsed.get("_ta_raw_text")
+        or parsed.get("raw_text_for_scoring")
+        or parsed.get("raw_text_preview")
+        or ""
+    )
+    if raw_text_source:
         active_section: Optional[str] = None
-        for raw_line in raw_text_preview.splitlines():
+        for raw_line in raw_text_source.splitlines():
             line = raw_line.strip()
             if not line:
                 continue
@@ -349,6 +405,10 @@ def _extract_section_buckets(parsed: dict[str, Any]) -> dict[str, list[str]]:
                 continue
 
             buckets[active_section].append(line)
+            if active_section == "skills":
+                buckets["skills_raw_section"].append(line)
+            elif active_section in {"projects", "work_experience", "education"}:
+                buckets[f"{active_section}_raw_section"].append(line)
 
     return buckets
 
@@ -370,13 +430,25 @@ def _score_skill(skill: str, parsed: dict[str, Any]) -> tuple[int, list[str], di
     occurrences = 0
     matched_tokens: set[str] = set()
 
+    seen_evidence: set[str] = set()
+
     for section in ("projects", "work_experience", "education"):
-        section_lines = buckets.get(section, [])
+        raw_key = f"{section}_raw_section"
+        raw_lines = buckets.get(raw_key, [])
+        section_lines = raw_lines if raw_lines else buckets.get(section, [])
+
         section_matched = False
         for line in section_lines:
             matches = _matched_variants_in_line(line, normalized_skill)
             if not matches:
                 continue
+
+            if _is_duplicate_evidence(line, seen_evidence):
+                continue
+
+            fingerprint = _evidence_fingerprint(line)
+            if fingerprint:
+                seen_evidence.add(fingerprint)
 
             occurrences += 1
             section_matched = True
@@ -387,8 +459,10 @@ def _score_skill(skill: str, parsed: dict[str, Any]) -> tuple[int, list[str], di
         if section_matched:
             matched_sections.append(section)
 
+    # Strict check: only raw text captured under a skills header qualifies for base=70.
+    # Do not use parsed["skills"] here, because LLM parsing can infer skills from projects/experience.
     skills_section_match = False
-    for line in buckets.get("skills", []):
+    for line in buckets.get("skills_raw_section", []):
         matches = _matched_variants_in_line(line, normalized_skill)
         if not matches:
             continue
@@ -521,6 +595,10 @@ def process_job(job_id: str, files: Optional[list[dict[str, Any]]] = None) -> No
             )
             _increment_processed(job_id)
             continue
+
+        raw_text, _, _ = extract_text_for_resume(file_bytes, content_type)
+        if raw_text:
+            payload["_ta_raw_text"] = raw_text
 
         buckets = _extract_section_buckets(payload)
 

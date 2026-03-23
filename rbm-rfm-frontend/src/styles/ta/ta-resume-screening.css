@@ -560,3 +560,54 @@
   line-height: 1.4;
 }
 
+
+
+.title-row {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.info-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #1f4b99;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.info-btn:hover {
+  background: #e2e8f0;
+}
+
+.formula-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: min(420px, 92vw);
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid #dbe3ef;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+  z-index: 30;
+}
+
+.formula-example {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #334155;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px;
+  line-height: 1.4;
+}
