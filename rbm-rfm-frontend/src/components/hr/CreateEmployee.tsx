@@ -244,7 +244,7 @@ const parseEducationEntries = (
       const yearMatch = raw.match(/\b(19|20)\d{2}\b/);
       const year = yearMatch?.[0] ?? "";
 
-      let cleaned = raw.replace(/\s*[–—-]\s*/g, " - ");
+      let cleaned = raw.replace(/\s*[ï¿½ï¿½-]\s*/g, " - ");
       if (year) {
         cleaned = cleaned.replace(year, "");
       }
@@ -1163,27 +1163,3 @@ const CreateEmployee: React.FC = () => {
 };
 
 export default CreateEmployee;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

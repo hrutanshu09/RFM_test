@@ -304,6 +304,59 @@ def get_job(job_id: str) -> Optional[dict[str, Any]]:
         return dict(job) if job else None
 
 
+def get_job_queued_files(job_id: str) -> list[dict[str, Any]]:
+    with _JOB_LOCK:
+        job = _JOBS.get(job_id)
+        if not job:
+            return []
+        return list(job.get("queued_files", []))
+
+
+def apply_external_results(
+    job_id: str,
+    *,
+    title: Optional[str],
+    primary_skills: list[str],
+    secondary_skills: list[str],
+    min_match_percent: int,
+    results: list[dict[str, Any]],
+    errors: list[dict[str, Any]],
+    total: int,
+) -> None:
+    updates: dict[str, Any] = {
+        "status": "completed",
+        "primary_skills": primary_skills,
+        "secondary_skills": secondary_skills,
+        "min_match_percent": min_match_percent,
+        "results": results,
+        "errors": errors,
+        "total": total,
+        "uploaded": total,
+        "processed": total,
+        "queued_files": [],
+    }
+    if title is not None:
+        updates["title"] = title
+    _update_job(job_id, **updates)
+
+
+def set_job_processing_state(job_id: str) -> None:
+    _update_job(job_id, status="processing", processed=0, results=[], errors=[])
+
+
+def list_job_ids() -> list[str]:
+    with _JOB_LOCK:
+        return sorted(_JOBS.keys())
+
+
+def job_store_stats() -> dict[str, Any]:
+    with _JOB_LOCK:
+        return {
+            "count": len(_JOBS),
+            "job_ids": sorted(_JOBS.keys()),
+        }
+
+
 def _update_job(job_id: str, **updates: Any) -> None:
     with _JOB_LOCK:
         job = _JOBS.get(job_id)

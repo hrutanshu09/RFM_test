@@ -1,0 +1,877 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import threading
+from datetime import datetime
+from typing import Any, Optional
+
+try:
+    import google.generativeai as genai
+except Exception:  # pragma: no cover - optional dependency at runtime
+    genai = None
+
+from services.resume_parser import parse_resume_bytes
+from services.ta_resume_screening import load_taxonomy
+
+GEMINI_MODEL = os.getenv("SKILL_AI_MODEL") or os.getenv("GEMINI_MODEL") or "gemini-2.5-flash"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+DOMAIN_CHOICES: tuple[str, ...] = (
+    "Frontend Engineering",
+    "Backend Engineering",
+    "Full Stack",
+    "Data/AI",
+    "DevOps/Cloud",
+    "QA/Testing",
+    "Security",
+    "Mobile",
+    "Other",
+)
+
+DOMAIN_RULES: dict[str, tuple[str, ...]] = {
+    "Frontend Engineering": ("frontend", "front-end", "react", "javascript", "typescript", "html", "css", "ui", "ux"),
+    "Backend Engineering": ("backend", "back-end", "spring", "django", "flask", "fastapi", "api", "microservice", "server-side"),
+    "Full Stack": ("full stack", "fullstack", "front end and back end", "frontend and backend"),
+    "Data/AI": ("machine learning", "ml", "ai", "data science", "nlp", "deep learning", "computer vision"),
+    "DevOps/Cloud": ("devops", "kubernetes", "docker", "aws", "azure", "gcp", "terraform", "ci/cd", "cloud"),
+    "QA/Testing": ("qa", "quality assurance", "testing", "test automation", "selenium", "cypress", "jest"),
+    "Security": ("security", "cyber", "penetration", "vulnerability", "soc", "siem", "infosec"),
+    "Mobile": ("android", "ios", "react native", "flutter", "swift", "kotlin", "mobile"),
+}
+
+SKILL_ALIASES_TEST: dict[str, tuple[str, ...]] = {
+    "react": ("reactjs", "react.js", "react js"),
+    "javascript": ("js", "javascript es6", "javascript es6+", "ecmascript", "java script"),
+    "typescript": ("ts", "type script"),
+    "html": ("html5",),
+    "css": ("css3",),
+    "sass": ("scss",),
+    "tailwind css": ("tailwind", "tailwindcss"),
+    "bootstrap": tuple(),
+    "material ui": ("mui", "material-ui"),
+    "redux": ("redux toolkit", "rtk"),
+    "context api": ("react context", "contextapi"),
+    "next.js": ("nextjs", "next js"),
+    "vue": ("vue.js", "vuejs"),
+    "angular": ("angularjs",),
+    "node.js": ("nodejs", "node js"),
+    "express": ("express.js", "expressjs"),
+    "spring boot": ("springboot",),
+    "spring": ("spring framework",),
+    "django": tuple(),
+    "flask": tuple(),
+    "fastapi": tuple(),
+    "laravel": tuple(),
+    "asp.net": ("asp.net core", "dotnet", ".net", "c#"),
+    "rest": ("rest api", "rest apis", "restful", "restful api", "restful apis"),
+    "graphql": ("graph ql",),
+    "microservices": ("microservice",),
+    "python": ("python3", "py"),
+    "java": tuple(),
+    "c++": ("cpp",),
+    "c#": ("csharp",),
+    "go": ("golang",),
+    "ruby": tuple(),
+    "php": tuple(),
+    "kotlin": tuple(),
+    "swift": tuple(),
+    "r": tuple(),
+    "matlab": tuple(),
+    "sql": tuple(),
+    "mysql": tuple(),
+    "postgresql": ("postgres", "psql"),
+    "mongodb": ("mongo", "mongo db"),
+    "redis": tuple(),
+    "elasticsearch": ("elastic search", "elk"),
+    "pandas": tuple(),
+    "numpy": tuple(),
+    "scikit-learn": ("sklearn", "scikit learn"),
+    "tensorflow": ("tf",),
+    "pytorch": ("torch", "py torch"),
+    "keras": tuple(),
+    "xgboost": tuple(),
+    "lightgbm": ("lgbm",),
+    "nlp": ("natural language processing",),
+    "llm": ("large language model", "large language models", "generative ai"),
+    "rag": ("retrieval augmented generation",),
+    "docker": tuple(),
+    "kubernetes": ("k8s",),
+    "jenkins": tuple(),
+    "github actions": ("gh actions",),
+    "ci/cd": ("cicd", "ci cd"),
+    "terraform": tuple(),
+    "ansible": tuple(),
+    "nginx": tuple(),
+    "aws": ("amazon web services",),
+    "azure": ("microsoft azure",),
+    "gcp": ("google cloud", "google cloud platform"),
+    "jest": tuple(),
+    "cypress": tuple(),
+    "selenium": tuple(),
+    "pytest": tuple(),
+    "junit": tuple(),
+    "postman": tuple(),
+    "react native": ("react-native",),
+    "flutter": tuple(),
+    "android": tuple(),
+    "ios": tuple(),
+    "git": tuple(),
+    "github": tuple(),
+    "gitlab": tuple(),
+    "jira": tuple(),
+    "linux": tuple(),
+    "kali linux": ("kali",),
+    "wireshark": tuple(),
+    "metasploit": tuple(),
+    "nmap": tuple(),
+    "burp suite": ("burpsuite", "burp-suite"),
+    "owasp": tuple(),
+}
+
+JD_PARSE_VERSION = "v1"
+_JD_PARSE_CACHE_LOCK = threading.Lock()
+_JD_PARSE_CACHE: dict[str, dict[str, object]] = {}
+
+
+def _normalize_domain_label(value: object) -> Optional[str]:
+    if value is None:
+        return None
+    raw = str(value).strip().lower()
+    if not raw:
+        return None
+
+    aliases = {
+        "frontend": "Frontend Engineering",
+        "front-end": "Frontend Engineering",
+        "front end": "Frontend Engineering",
+        "backend": "Backend Engineering",
+        "back-end": "Backend Engineering",
+        "back end": "Backend Engineering",
+        "full stack": "Full Stack",
+        "fullstack": "Full Stack",
+        "data": "Data/AI",
+        "ai": "Data/AI",
+        "ml": "Data/AI",
+        "devops": "DevOps/Cloud",
+        "cloud": "DevOps/Cloud",
+        "qa": "QA/Testing",
+        "testing": "QA/Testing",
+        "security": "Security",
+        "mobile": "Mobile",
+        "other": "Other",
+    }
+
+    if raw in aliases:
+        return aliases[raw]
+
+    for choice in DOMAIN_CHOICES:
+        if raw == choice.lower():
+            return choice
+
+    return None
+
+
+def _detect_domain_from_text(jd_text: str) -> tuple[str, list[str]]:
+    lowered = jd_text.lower()
+    best_domain = "Other"
+    best_signals: list[str] = []
+
+    for domain, signals in DOMAIN_RULES.items():
+        matched = [signal for signal in signals if signal in lowered]
+        if len(matched) > len(best_signals):
+            best_domain = domain
+            best_signals = matched
+
+    return best_domain, best_signals
+
+
+def _extract_json_from_text(text: str) -> Optional[dict]:
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        return None
+    try:
+        return json.loads(match.group(0))
+    except Exception:
+        return None
+
+
+def _normalize_jd_skills(raw_skills: object) -> list[str]:
+    taxonomy = load_taxonomy()
+    taxonomy_map = {skill.lower().strip(): skill for skill in taxonomy}
+
+    if isinstance(raw_skills, list):
+        parts = [str(item) for item in raw_skills if item is not None]
+    elif raw_skills:
+        parts = [str(raw_skills)]
+    else:
+        parts = []
+
+    items: list[str] = []
+    for part in parts:
+        items.extend(token.strip() for token in re.split(r"[,;\n|]+", part) if token.strip())
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        canon = taxonomy_map.get(item.lower().strip(), item.strip())
+        key = canon.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(canon)
+    return out
+
+
+def _parse_experience_range_from_text(jd_text: str) -> tuple[Optional[float], Optional[float]]:
+    range_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:-|to)\s*(\d+(?:\.\d+)?)\s*years?", jd_text, flags=re.IGNORECASE)
+    if range_match:
+        start = float(range_match.group(1))
+        end = float(range_match.group(2))
+        if end < start:
+            start, end = end, start
+        return start, end
+
+    plus_match = re.search(r"(\d+(?:\.\d+)?)\s*\+\s*years?", jd_text, flags=re.IGNORECASE)
+    if plus_match:
+        return float(plus_match.group(1)), None
+
+    min_match = re.search(r"(?:minimum|min)\s*(\d+(?:\.\d+)?)\s*years?", jd_text, flags=re.IGNORECASE)
+    if min_match:
+        return float(min_match.group(1)), None
+
+    return None, None
+
+
+def _parse_jd_with_gemini(jd_text: str, strict_mode: bool = False) -> tuple[Optional[dict], Optional[str]]:
+    if genai is None:
+        return None, "google-generativeai is not installed"
+    if not GEMINI_API_KEY:
+        return None, "GEMINI_API_KEY is not set"
+
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel(GEMINI_MODEL)
+
+    strict_tail = "Return exactly the requested keys and valid JSON only." if strict_mode else ""
+    prompt = (
+        "You are a job description parser. Extract structured JSON with keys only: "
+        "title (string or null), domain (string or null), primary_skills (array of strings), "
+        "secondary_skills (array of strings), min_experience_years (number or null), "
+        "max_experience_years (number or null), strict_upper_bound (boolean), "
+        "nice_to_have (array of strings), keywords (array of strings). "
+        "For domain, return only one of: Frontend Engineering, Backend Engineering, Full Stack, Data/AI, DevOps/Cloud, QA/Testing, Security, Mobile, Other. "
+        "Do not include any extra keys or commentary. If unknown, use null or [] (domain should default to Other instead of null if possible). "
+        + strict_tail + "\n\n"
+        "Job Description:\n" + jd_text[:60000]
+    )
+
+    try:
+        response = model.generate_content(
+            prompt,
+            generation_config={"temperature": 0, "top_p": 0.1},
+        )
+        payload = _extract_json_from_text(getattr(response, "text", ""))
+        if not payload:
+            return None, "Model response was not valid JSON"
+        return payload, None
+    except Exception as exc:
+        return None, str(exc)
+
+
+def _prepare_jd_payload(parsed: dict, jd_text: str, strict_upper_bound: bool) -> dict:
+    primary = _normalize_jd_skills(parsed.get("primary_skills") or [])
+    secondary = _normalize_jd_skills(parsed.get("secondary_skills") or [])
+    nice_to_have = _normalize_jd_skills(parsed.get("nice_to_have") or [])
+
+    min_experience_years = parsed.get("min_experience_years")
+    max_experience_years = parsed.get("max_experience_years")
+    try:
+        min_experience_years = float(min_experience_years) if min_experience_years is not None else None
+    except Exception:
+        min_experience_years = None
+    try:
+        max_experience_years = float(max_experience_years) if max_experience_years is not None else None
+    except Exception:
+        max_experience_years = None
+
+    if min_experience_years is None and max_experience_years is None:
+        parsed_min, parsed_max = _parse_experience_range_from_text(jd_text)
+        min_experience_years = parsed_min
+        max_experience_years = parsed_max
+
+    if min_experience_years is not None and max_experience_years is not None and max_experience_years < min_experience_years:
+        min_experience_years, max_experience_years = max_experience_years, min_experience_years
+
+    llm_domain = _normalize_domain_label(parsed.get("domain"))
+    fallback_domain, fallback_signals = _detect_domain_from_text(jd_text)
+    domain = llm_domain or fallback_domain
+    domain_source = "llm" if llm_domain else "rule_fallback"
+
+    response = {
+        "title": parsed.get("title"),
+        "domain": domain,
+        "domain_source": domain_source,
+        "domain_signals": fallback_signals if domain_source == "rule_fallback" else [],
+        "primary_skills": primary,
+        "secondary_skills": secondary,
+        "min_experience_years": min_experience_years,
+        "max_experience_years": max_experience_years,
+        "strict_upper_bound": bool(parsed.get("strict_upper_bound", strict_upper_bound)),
+        "nice_to_have": nice_to_have,
+        "keywords": [str(item) for item in (parsed.get("keywords") or []) if str(item).strip()],
+    }
+
+    present_fields = sum(
+        1
+        for value in [
+            response["title"],
+            response["domain"],
+            response["primary_skills"],
+            response["secondary_skills"],
+            response["min_experience_years"],
+            response["max_experience_years"],
+            response["keywords"],
+        ]
+        if value not in (None, "", [])
+    )
+    response["confidence"] = int(round((present_fields / 7) * 100))
+    response["missing_fields"] = [
+        key
+        for key in ["title", "domain", "primary_skills", "secondary_skills", "min_experience_years", "max_experience_years", "keywords"]
+        if response.get(key) in (None, "", [])
+    ]
+    return response
+
+
+def _normalize_jd_text_for_hash(jd_text: str) -> str:
+    return re.sub(r"\s+", " ", jd_text.strip().lower())
+
+
+def _jd_cache_key(jd_text: str, strict_upper_bound: bool) -> str:
+    normalized = _normalize_jd_text_for_hash(jd_text)
+    raw = f"{JD_PARSE_VERSION}|strict={int(strict_upper_bound)}|{normalized}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _validate_jd_payload(payload: dict) -> list[str]:
+    errors: list[str] = []
+    if payload.get("domain") not in DOMAIN_CHOICES:
+        errors.append("domain is invalid or missing")
+
+    min_years = payload.get("min_experience_years")
+    max_years = payload.get("max_experience_years")
+    if min_years is not None and min_years < 0:
+        errors.append("min_experience_years must be >= 0")
+    if max_years is not None and max_years < 0:
+        errors.append("max_experience_years must be >= 0")
+    if min_years is not None and max_years is not None and min_years > max_years:
+        errors.append("min_experience_years cannot exceed max_experience_years")
+    if not payload.get("primary_skills") and not payload.get("secondary_skills") and not payload.get("keywords"):
+        errors.append("no skills/keywords were extracted")
+    return errors
+
+
+def parse_jd_validated(
+    jd_text: str,
+    strict_upper_bound: bool,
+    force_refresh: bool = False,
+) -> tuple[Optional[dict], Optional[dict], Optional[str], dict[str, object]]:
+    meta: dict[str, object] = {
+        "cache_hit": False,
+        "validated": False,
+        "retry_used": False,
+        "validation_errors": [],
+    }
+
+    key = _jd_cache_key(jd_text, strict_upper_bound)
+    if not force_refresh:
+        with _JD_PARSE_CACHE_LOCK:
+            cached = _JD_PARSE_CACHE.get(key)
+        if cached:
+            meta["cache_hit"] = True
+            meta["validated"] = True
+            return cached["prepared"], cached.get("raw"), None, meta
+
+    raw, error = _parse_jd_with_gemini(jd_text, strict_mode=False)
+    if error or not raw:
+        return None, None, error or "JD parse failed.", meta
+
+    prepared = _prepare_jd_payload(raw, jd_text, strict_upper_bound)
+    validation_errors = _validate_jd_payload(prepared)
+    if validation_errors:
+        meta["retry_used"] = True
+        retry_raw, retry_error = _parse_jd_with_gemini(jd_text, strict_mode=True)
+        if retry_error or not retry_raw:
+            meta["validation_errors"] = validation_errors
+            return None, raw, retry_error or "JD parse failed on retry.", meta
+
+        retry_prepared = _prepare_jd_payload(retry_raw, jd_text, strict_upper_bound)
+        retry_errors = _validate_jd_payload(retry_prepared)
+        if retry_errors:
+            meta["validation_errors"] = retry_errors
+            return None, retry_raw, "JD parse validation failed.", meta
+
+        prepared = retry_prepared
+        raw = retry_raw
+
+    with _JD_PARSE_CACHE_LOCK:
+        _JD_PARSE_CACHE[key] = {"prepared": prepared, "raw": raw}
+
+    meta["validated"] = True
+    return prepared, raw, None, meta
+
+
+def _resume_text_blob(parsed_resume: dict) -> str:
+    parts: list[str] = []
+    for key in ("skills", "projects", "work_experience", "education"):
+        values = parsed_resume.get(key) or []
+        if isinstance(values, list):
+            parts.extend(str(v) for v in values if v)
+        elif values:
+            parts.append(str(values))
+    return "\n".join(parts)
+
+
+def _looks_like_internship_entry(entry: str) -> bool:
+    lowered = entry.lower()
+    internship_markers = ("intern", "internship", "trainee", "apprentice", "co-op", "co op")
+    return any(marker in lowered for marker in internship_markers)
+
+
+def _extract_candidate_years(work_entries: list[str]) -> float:
+    if not work_entries:
+        return 0.0
+
+    filtered_entries = [str(item) for item in work_entries if str(item).strip() and not _looks_like_internship_entry(str(item))]
+    if not filtered_entries:
+        return 0.0
+
+    text = "\n".join(filtered_entries)
+
+    explicit = re.findall(r"(\d+(?:\.\d+)?)\s*\+?\s*years?", text, flags=re.IGNORECASE)
+    if explicit:
+        try:
+            return max(float(v) for v in explicit)
+        except Exception:
+            pass
+
+    years = [int(match) for match in re.findall(r"\b(19\d{2}|20\d{2})\b", text)]
+    if len(years) < 2:
+        return 0.0
+
+    now_year = datetime.now().year
+    min_year = min(years)
+    max_year = max(years)
+    if re.search(r"\b(present|current|now)\b", text, flags=re.IGNORECASE):
+        max_year = now_year
+    else:
+        max_year = min(max_year, now_year)
+
+    return float(max(0, max_year - min_year))
+
+
+def _normalize_skill_token(value: str) -> str:
+    return "".join(ch for ch in value.lower().strip() if ch.isalnum() or ch in {"+", ".", "#"})
+
+
+def _tokenize_skill_text(value: str) -> list[str]:
+    raw_tokens = re.findall(r"[A-Za-z0-9+#.]+", value or "")
+    tokens: list[str] = []
+    for token in raw_tokens:
+        normalized = _normalize_skill_token(token)
+        if normalized:
+            tokens.append(normalized)
+    return tokens
+
+
+def _normalize_skill_phrase(value: str) -> str:
+    return " ".join(_tokenize_skill_text(value))
+
+
+def _build_skill_alias_lookup() -> tuple[dict[str, str], dict[str, set[str]]]:
+    alias_to_canonical: dict[str, str] = {}
+    canonical_to_variants: dict[str, set[str]] = {}
+
+    for canonical, variants in SKILL_ALIASES_TEST.items():
+        canonical_norm = _normalize_skill_phrase(canonical)
+        if not canonical_norm:
+            continue
+        variant_set = {canonical_norm}
+        for variant in variants:
+            norm = _normalize_skill_phrase(variant)
+            if norm:
+                variant_set.add(norm)
+        canonical_to_variants[canonical_norm] = variant_set
+        for variant in variant_set:
+            alias_to_canonical[variant] = canonical_norm
+
+    return alias_to_canonical, canonical_to_variants
+
+
+_SKILL_ALIAS_TO_CANONICAL, _SKILL_CANONICAL_VARIANTS = _build_skill_alias_lookup()
+
+
+def _canonicalize_skill_token(value: str) -> str:
+    normalized = _normalize_skill_phrase(value)
+    return _SKILL_ALIAS_TO_CANONICAL.get(normalized, normalized)
+
+
+def _skill_variants_for(token: str) -> set[str]:
+    canonical = _canonicalize_skill_token(token)
+    return _SKILL_CANONICAL_VARIANTS.get(canonical, {canonical})
+
+
+def _count_phrase_mentions(tokens: list[str], phrase: str) -> int:
+    phrase_tokens = phrase.split()
+    if not phrase_tokens or not tokens:
+        return 0
+
+    width = len(phrase_tokens)
+    if width > len(tokens):
+        return 0
+
+    count = 0
+    for idx in range(0, len(tokens) - width + 1):
+        if tokens[idx : idx + width] == phrase_tokens:
+            count += 1
+    return count
+
+
+def _keyword_overlap_percent(jd_tokens: set[str], candidate_text: str) -> int:
+    if not jd_tokens:
+        return 0
+    candidate_tokens = {token for token in re.findall(r"[A-Za-z0-9+#.]{3,}", candidate_text.lower())}
+    overlap = len(jd_tokens.intersection(candidate_tokens))
+    return int(round((overlap / max(1, len(jd_tokens))) * 100))
+
+
+def _entry_to_text(entry: object) -> str:
+    if isinstance(entry, dict):
+        parts: list[str] = []
+        for key in ("name", "summary", "description"):
+            value = entry.get(key)
+            if value:
+                parts.append(str(value).strip())
+        tech = entry.get("tech_stack")
+        if isinstance(tech, list) and tech:
+            parts.append("Tech Stack: " + ", ".join(str(v).strip() for v in tech if str(v).strip()))
+        elif tech:
+            parts.append("Tech Stack: " + str(tech).strip())
+        joined = " - ".join(part for part in parts if part)
+        return joined.strip()
+    return str(entry).strip()
+
+
+def _matched_aliases_in_text(text: str, variants: set[str]) -> set[str]:
+    tokens = _tokenize_skill_text(text)
+    matched: set[str] = set()
+    for variant in variants:
+        if _count_phrase_mentions(tokens, variant) > 0:
+            matched.add(variant)
+    return matched
+
+
+def _line_matches_variants(line: str, variants: set[str]) -> bool:
+    return bool(_matched_aliases_in_text(line, variants))
+
+
+def _collect_skill_evidence(
+    parsed_resume: dict,
+    variants: set[str],
+    max_items: int = 4,
+    sections: tuple[str, ...] = ("skills", "projects", "work_experience", "education"),
+) -> list[dict[str, str]]:
+    evidence: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    for section in sections:
+        values = parsed_resume.get(section) or []
+        if not isinstance(values, list):
+            values = [values]
+
+        for raw_entry in values:
+            text_value = _entry_to_text(raw_entry)
+            if not text_value:
+                continue
+            key = re.sub(r"\s+", " ", text_value.strip().lower())
+            if key in seen:
+                continue
+            if not _line_matches_variants(text_value, variants):
+                continue
+
+            seen.add(key)
+            evidence.append({"section": section, "text": text_value})
+            if len(evidence) >= max_items:
+                return evidence
+
+    return evidence
+
+
+def _count_mentions_in_sections(parsed_resume: dict, variants: set[str], sections: tuple[str, ...]) -> tuple[int, set[str]]:
+    mentions = 0
+    matched_aliases: set[str] = set()
+    seen: set[str] = set()
+
+    for section in sections:
+        values = parsed_resume.get(section) or []
+        if not isinstance(values, list):
+            values = [values]
+
+        for raw_entry in values:
+            text_value = _entry_to_text(raw_entry)
+            if not text_value:
+                continue
+            key = re.sub(r"\s+", " ", text_value.strip().lower())
+            if key in seen:
+                continue
+            seen.add(key)
+
+            aliases_in_line = _matched_aliases_in_text(text_value, variants)
+            if not aliases_in_line:
+                continue
+
+            mentions += 1
+            matched_aliases.update(aliases_in_line)
+
+    return mentions, matched_aliases
+
+
+def _is_listed_in_skills_section(parsed_resume: dict, variants: set[str]) -> bool:
+    values = parsed_resume.get("skills") or []
+    if not isinstance(values, list):
+        values = [values]
+
+    for raw_entry in values:
+        text_value = _entry_to_text(raw_entry)
+        if not text_value:
+            continue
+        if _line_matches_variants(text_value, variants):
+            return True
+    return False
+
+
+def _experience_score(candidate_years: float, min_years: Optional[float], max_years: Optional[float], strict_upper_bound: bool) -> tuple[int, str]:
+    if min_years is None and max_years is None:
+        return 100, "no_requirement"
+
+    if min_years is not None and candidate_years < min_years:
+        score = int(round((candidate_years / max(min_years, 0.1)) * 100.0))
+        return max(0, min(score, 100)), "below_range"
+
+    if max_years is not None and candidate_years > max_years:
+        if strict_upper_bound:
+            excess = candidate_years - max_years
+            penalty = int(round(excess * 10))
+            return max(0, 100 - penalty), "above_range"
+        return 90, "above_range"
+
+    return 100, "in_range"
+
+
+def _skill_component(parsed_resume: dict, primary: list[str], secondary: list[str]) -> tuple[int, list[dict[str, object]]]:
+    weighted_sum = 0.0
+    total_weight = 0.0
+    details: list[dict[str, object]] = []
+
+    all_skills = [(s, True) for s in primary] + [(s, False) for s in secondary]
+    for skill, is_primary in all_skills:
+        canonical_skill = _canonicalize_skill_token(skill)
+        variants = _skill_variants_for(canonical_skill)
+
+        in_skills = _is_listed_in_skills_section(parsed_resume, variants)
+        mentions, matched_aliases = _count_mentions_in_sections(
+            parsed_resume,
+            variants,
+            sections=("projects", "work_experience", "education"),
+        )
+
+        base = 70 if in_skills else (50 if mentions > 0 else 0)
+        bonus = mentions * 5
+        score = min(95, base + bonus)
+        weight = 1.0 if is_primary else 0.5
+
+        weighted_sum += score * weight
+        total_weight += weight
+
+        evidence = _collect_skill_evidence(parsed_resume, variants)
+        matched_sections = sorted({item.get("section", "") for item in evidence if item.get("section")})
+
+        details.append(
+            {
+                "skill": skill,
+                "is_primary": is_primary,
+                "canonical": canonical_skill,
+                "base": base,
+                "bonus": bonus,
+                "mentions": mentions,
+                "score": score,
+                "matched_aliases": sorted(matched_aliases),
+                "mentioned_in_sections": matched_sections,
+                "evidence": evidence,
+            }
+        )
+
+    final = int(round(weighted_sum / total_weight)) if total_weight > 0 else 0
+    return final, details
+
+
+def rank_uploaded_resumes(
+    files: list[dict[str, Any]],
+    jd_text: str,
+    strict_upper_bound: bool = False,
+    force_refresh: bool = False,
+    debug: bool = False,
+) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+    jd_parsed, jd_parsed_raw, jd_error, parse_meta = parse_jd_validated(
+        jd_text,
+        strict_upper_bound=strict_upper_bound,
+        force_refresh=force_refresh,
+    )
+    if jd_error or not jd_parsed:
+        return {
+            "detail": jd_error or "JD parse failed.",
+            "validation_errors": parse_meta.get("validation_errors", []),
+        }, "jd_parse_error"
+
+    min_years = jd_parsed.get("min_experience_years")
+    max_years = jd_parsed.get("max_experience_years")
+    strict = bool(jd_parsed.get("strict_upper_bound"))
+
+    jd_tokens = {
+        token
+        for token in re.findall(r"[A-Za-z0-9+#.]{3,}", jd_text.lower())
+        if token not in {"with", "from", "that", "this", "have", "will", "and", "for", "the"}
+    }
+
+    ranked_candidates: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+
+    primary = jd_parsed.get("primary_skills") or []
+    secondary = jd_parsed.get("secondary_skills") or []
+
+    for file_item in files:
+        file_bytes = file_item.get("file_bytes") or b""
+        content_type = file_item.get("content_type") or ""
+        filename = str(file_item.get("filename") or "resume")
+
+        parsed_resume, parse_error, _ = parse_resume_bytes(file_bytes, content_type)
+        if parse_error or not parsed_resume:
+            errors.append({"filename": filename, "error": parse_error or "Parse failed"})
+            continue
+
+        skill_score, skill_details = _skill_component(parsed_resume, primary, secondary)
+        candidate_years = _extract_candidate_years(parsed_resume.get("work_experience") or [])
+        experience_score, experience_fit = _experience_score(candidate_years, min_years, max_years, strict)
+        jd_context_score = _keyword_overlap_percent(jd_tokens, _resume_text_blob(parsed_resume))
+
+        final_score = int(round((skill_score * 0.6) + (experience_score * 0.3) + (jd_context_score * 0.1)))
+
+        item: dict[str, Any] = {
+            "filename": filename,
+            "name": parsed_resume.get("name") or filename,
+            "score": final_score,
+            "skill_score": skill_score,
+            "experience_score": experience_score,
+            "jd_context_score": jd_context_score,
+            "experience_years_detected": candidate_years,
+            "experience_fit": experience_fit,
+            "skill_details": skill_details,
+        }
+
+        if debug:
+            item["weights"] = {"skills": 0.6, "experience": 0.3, "jd_context": 0.1}
+
+        ranked_candidates.append(item)
+
+    ranked_candidates.sort(key=lambda x: x.get("score", 0), reverse=True)
+
+    response: dict[str, Any] = {
+        "jd_parsed": jd_parsed,
+        "weights": {"skills": 0.6, "experience": 0.3, "jd_context": 0.1},
+        "ranked_candidates": ranked_candidates,
+        "errors": errors,
+        "total_uploaded": len(files),
+        "total_ranked": len(ranked_candidates),
+    }
+    if debug:
+        response["raw_jd_model_output"] = jd_parsed_raw
+        response["parse_meta"] = parse_meta
+
+    return response, None
+
+
+def rank_uploaded_resumes_from_parsed(
+    files: list[dict[str, Any]],
+    jd_text: str,
+    jd_parsed: dict[str, Any],
+    debug: bool = False,
+) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+    min_years = jd_parsed.get("min_experience_years")
+    max_years = jd_parsed.get("max_experience_years")
+    strict = bool(jd_parsed.get("strict_upper_bound"))
+
+    jd_tokens = {
+        token
+        for token in re.findall(r"[A-Za-z0-9+#.]{3,}", jd_text.lower())
+        if token not in {"with", "from", "that", "this", "have", "will", "and", "for", "the"}
+    }
+
+    ranked_candidates: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+
+    primary = list(jd_parsed.get("primary_skills") or [])
+    secondary = list(jd_parsed.get("secondary_skills") or [])
+
+    for file_item in files:
+        file_bytes = file_item.get("file_bytes") or b""
+        content_type = file_item.get("content_type") or ""
+        filename = str(file_item.get("filename") or "resume")
+
+        parsed_resume, parse_error, _ = parse_resume_bytes(file_bytes, content_type)
+        if parse_error or not parsed_resume:
+            errors.append({"filename": filename, "error": parse_error or "Parse failed"})
+            continue
+
+        skill_score, skill_details = _skill_component(parsed_resume, primary, secondary)
+        candidate_years = _extract_candidate_years(parsed_resume.get("work_experience") or [])
+        experience_score, experience_fit = _experience_score(candidate_years, min_years, max_years, strict)
+        jd_context_score = _keyword_overlap_percent(jd_tokens, _resume_text_blob(parsed_resume))
+
+        final_score = int(round((skill_score * 0.6) + (experience_score * 0.3) + (jd_context_score * 0.1)))
+
+        item: dict[str, Any] = {
+            "filename": filename,
+            "name": parsed_resume.get("name") or filename,
+            "score": final_score,
+            "skill_score": skill_score,
+            "experience_score": experience_score,
+            "jd_context_score": jd_context_score,
+            "experience_years_detected": candidate_years,
+            "experience_fit": experience_fit,
+            "skill_details": skill_details,
+        }
+
+        if debug:
+            item["weights"] = {"skills": 0.6, "experience": 0.3, "jd_context": 0.1}
+
+        ranked_candidates.append(item)
+
+    ranked_candidates.sort(key=lambda x: x.get("score", 0), reverse=True)
+
+    response: dict[str, Any] = {
+        "jd_parsed": jd_parsed,
+        "weights": {"skills": 0.6, "experience": 0.3, "jd_context": 0.1},
+        "ranked_candidates": ranked_candidates,
+        "errors": errors,
+        "total_uploaded": len(files),
+        "total_ranked": len(ranked_candidates),
+    }
+
+    return response, None

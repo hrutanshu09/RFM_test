@@ -5,16 +5,21 @@ import "../../styles/ta/ta-resume-screening.css";
 
 const SCREENING_STORAGE_KEY = "ta_resume_screening_state_v1";
 
-interface JobCreatePayload {
-  title?: string;
-  primary_skills: string[];
-  secondary_skills: string[];
-  min_match_percent?: number;
-}
-
 interface JobCreateResponse {
   job_id: string;
   status: string;
+}
+
+interface JDParseApiResponse {
+  job_id: string;
+  parsed_jd: {
+    title?: string | null;
+    domain?: string | null;
+    primary_skills?: string[];
+    secondary_skills?: string[];
+    min_experience_years?: number | null;
+    max_experience_years?: number | null;
+  };
 }
 
 interface JobResultsResponse {
@@ -55,6 +60,10 @@ interface CandidateResult {
 
 interface PersistedScreeningState {
   jobTitle: string;
+  jobDescription: string;
+  jdDomain: string;
+  jdMinExperience: string;
+  jdMaxExperience: string;
   jobId: string | null;
   jobStatus: string | null;
   jobProgress: { processed: number; total: number };
@@ -66,7 +75,6 @@ interface PersistedScreeningState {
 
 const TAResumeScreening: React.FC = () => {
   const navigate = useNavigate();
-  const [taxonomy, setTaxonomy] = useState<string[]>([]);
   const [primarySkills, setPrimarySkills] = useState<string[]>([]);
   const [secondarySkills, setSecondarySkills] = useState<string[]>([]);
   const [jobTitle, setJobTitle] = useState("");
@@ -80,23 +88,16 @@ const TAResumeScreening: React.FC = () => {
   const [errors, setErrors] = useState<{ filename: string; error: string }[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isJDParsing, setIsJDParsing] = useState(false);
+  const [isJDProcessing, setIsJDProcessing] = useState(false);
+  const [jobDescription, setJobDescription] = useState("");
+  const [jdDomain, setJdDomain] = useState("");
+  const [jdMinExperience, setJdMinExperience] = useState("");
+  const [jdMaxExperience, setJdMaxExperience] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
   const [showFormulaInfo, setShowFormulaInfo] = useState(false);
   const formulaRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const loadTaxonomy = async () => {
-      try {
-        const response = await apiClient.get<{ skills: string[] }>("/ta/skills");
-        setTaxonomy(response.data.skills ?? []);
-      } catch (err) {
-        setMessage("Failed to load skills taxonomy.");
-      }
-    };
-    loadTaxonomy();
-  }, []);
 
   useEffect(() => {
     try {
@@ -104,6 +105,10 @@ const TAResumeScreening: React.FC = () => {
       if (raw) {
         const cached = JSON.parse(raw) as PersistedScreeningState;
         setJobTitle(cached.jobTitle ?? "");
+        setJobDescription(cached.jobDescription ?? "");
+        setJdDomain(cached.jdDomain ?? "");
+        setJdMinExperience(cached.jdMinExperience ?? "");
+        setJdMaxExperience(cached.jdMaxExperience ?? "");
         setJobId(cached.jobId ?? null);
         setJobStatus(cached.jobStatus ?? null);
         setJobProgress(cached.jobProgress ?? { processed: 0, total: 0 });
@@ -124,6 +129,10 @@ const TAResumeScreening: React.FC = () => {
 
     const snapshot: PersistedScreeningState = {
       jobTitle,
+      jobDescription,
+      jdDomain,
+      jdMinExperience,
+      jdMaxExperience,
       jobId,
       jobStatus,
       jobProgress,
@@ -133,7 +142,7 @@ const TAResumeScreening: React.FC = () => {
       errors,
     };
     window.sessionStorage.setItem(SCREENING_STORAGE_KEY, JSON.stringify(snapshot));
-  }, [isHydrated, jobTitle, jobId, jobStatus, jobProgress, primarySkills, secondarySkills, results, errors]);
+  }, [isHydrated, jobTitle, jobDescription, jdDomain, jdMinExperience, jdMaxExperience, jobId, jobStatus, jobProgress, primarySkills, secondarySkills, results, errors]);
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent) => {
@@ -146,14 +155,6 @@ const TAResumeScreening: React.FC = () => {
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, []);
 
-  const taxonomyMap = useMemo(() => {
-    const map = new Map<string, string>();
-    taxonomy.forEach((skill) => map.set(skill.toLowerCase(), skill));
-    return map;
-  }, [taxonomy]);
-
-  const resolveSkill = (value: string) => taxonomyMap.get(value.toLowerCase()) ?? null;
-
   const addSkill = (
     value: string,
     type: "primary" | "secondary",
@@ -161,31 +162,15 @@ const TAResumeScreening: React.FC = () => {
   ) => {
     const trimmed = value.trim();
     if (!trimmed) return;
-    if (taxonomy.length === 0) {
-      // Allow input when taxonomy failed to load to avoid blocking the user.
-      if (type === "primary") {
-        if (!primarySkills.includes(trimmed)) {
-          setPrimarySkills((prev) => [...prev, trimmed]);
-        }
-      } else if (!secondarySkills.includes(trimmed)) {
-        setSecondarySkills((prev) => [...prev, trimmed]);
+
+    if (type === "primary") {
+      if (!primarySkills.includes(trimmed)) {
+        setPrimarySkills((prev) => [...prev, trimmed]);
       }
-      clearInput();
-      return;
+    } else if (!secondarySkills.includes(trimmed)) {
+      setSecondarySkills((prev) => [...prev, trimmed]);
     }
 
-    const resolved = resolveSkill(trimmed);
-    if (!resolved) {
-      setMessage(`"${trimmed}" is not in the taxonomy.`);
-      return;
-    }
-    if (type === "primary") {
-      if (!primarySkills.includes(resolved)) {
-        setPrimarySkills((prev) => [...prev, resolved]);
-      }
-    } else if (!secondarySkills.includes(resolved)) {
-      setSecondarySkills((prev) => [...prev, resolved]);
-    }
     clearInput();
   };
 
@@ -222,7 +207,7 @@ const TAResumeScreening: React.FC = () => {
       setResults([]);
       setErrors([]);
       setJobProgress({ processed: 0, total: files.length });
-      setMessage(`Uploaded ${files.length} resumes. Now select skills and start processing.`);
+      setMessage(`Uploaded ${files.length} resumes. Paste JD, parse it, review details, then start screening.`);
     } catch (err) {
       setMessage("Failed to upload resumes.");
     } finally {
@@ -230,32 +215,80 @@ const TAResumeScreening: React.FC = () => {
     }
   };
 
-  const startProcessing = async () => {
+  const parseJD = async () => {
     if (!jobId) {
-      setMessage("Upload resumes before starting processing.");
+      setMessage("Upload resumes before parsing JD.");
       return;
     }
-    if (primarySkills.length === 0) {
-      setMessage("Please add at least one primary skill.");
+    if (!jobDescription.trim()) {
+      setMessage("Please add a job description to parse.");
       return;
     }
 
-    setIsProcessing(true);
+    setIsJDParsing(true);
     setMessage(null);
     try {
-      const payload: JobCreatePayload = {
+      const response = await apiClient.post<JDParseApiResponse>(`/ta/jobs/${jobId}/parse-jd`, {
+        job_description: jobDescription,
+        strict_upper_bound: false,
+        force_refresh: true,
+        debug: false,
+      });
+      const parsed = response.data.parsed_jd || {};
+      setJobTitle(parsed.title ?? "");
+      setJdDomain(parsed.domain ?? "");
+      setPrimarySkills(parsed.primary_skills ?? []);
+      setSecondarySkills(parsed.secondary_skills ?? []);
+      setJdMinExperience(
+        parsed.min_experience_years === null || parsed.min_experience_years === undefined
+          ? ""
+          : String(parsed.min_experience_years),
+      );
+      setJdMaxExperience(
+        parsed.max_experience_years === null || parsed.max_experience_years === undefined
+          ? ""
+          : String(parsed.max_experience_years),
+      );
+      setMessage("JD parsed. Review and edit details before starting screening.");
+    } catch (err) {
+      setMessage("Failed to parse JD.");
+    } finally {
+      setIsJDParsing(false);
+    }
+  };
+
+  const startJDProcessing = async () => {
+    if (!jobId) {
+      setMessage("Upload resumes before starting JD processing.");
+      return;
+    }
+    if (!jobDescription.trim()) {
+      setMessage("Please add a job description before JD processing.");
+      return;
+    }
+
+    setIsJDProcessing(true);
+    setMessage(null);
+    try {
+      const response = await apiClient.post(`/ta/jobs/${jobId}/process-with-jd`, {
+        job_description: jobDescription,
         title: jobTitle,
+        domain: jdDomain,
         primary_skills: primarySkills,
         secondary_skills: secondarySkills,
-        min_match_percent: 0,
-      };
-      const response = await apiClient.post(`/ta/jobs/${jobId}/skills`, payload);
-      setJobStatus(response.data.status);
-      setMessage("Processing started. Results will update automatically.");
+        min_experience_years: jdMinExperience.trim() ? Number(jdMinExperience) : null,
+        max_experience_years: jdMaxExperience.trim() ? Number(jdMaxExperience) : null,
+        strict_upper_bound: false,
+        force_refresh: true,
+        debug: false,
+      });
+      setJobStatus(response.data.status ?? "completed");
+      setMessage("JD-based processing completed. Ranked results are ready.");
+      await refreshResults();
     } catch (err) {
-      setMessage("Failed to start processing.");
+      setMessage("Failed to process with JD.");
     } finally {
-      setIsProcessing(false);
+      setIsJDProcessing(false);
     }
   };
 
@@ -271,13 +304,24 @@ const TAResumeScreening: React.FC = () => {
         total: response.data.total ?? 0,
       });
     } catch (err) {
+      const statusCode = (err as { response?: { status?: number } })?.response?.status;
+      if (statusCode === 404) {
+        setJobStatus("not_found");
+        setJobId(null);
+        setResults([]);
+        setErrors([]);
+        setJobProgress({ processed: 0, total: 0 });
+        setFiles([]);
+        setMessage("Previous job was not found (likely stale after restart). Please upload resumes again.");
+        return;
+      }
       setMessage("Failed to fetch results.");
     }
   };
 
   useEffect(() => {
     if (!jobId) return;
-    if (jobStatus === "completed") return;
+    if (jobStatus === "completed" || jobStatus === "not_found") return;
 
     const interval = window.setInterval(() => {
       refreshResults();
@@ -304,7 +348,7 @@ const TAResumeScreening: React.FC = () => {
     },
     {
       key: "skills",
-      label: "Skills",
+      label: "JD Setup",
       active: isUploaded && !hasStarted,
       done: hasStarted,
     },
@@ -351,7 +395,7 @@ const TAResumeScreening: React.FC = () => {
               </div>
             )}
           </div>
-          <p>Upload resumes, select skills, and rank candidates by match %.</p>
+          <p>Upload resumes, parse JD, review parsed details, and rank candidates.</p>
         </div>
         <div className="ta-screening-status">
           <span className={`status-pill ${jobStatus ?? "idle"}`}>
@@ -400,14 +444,46 @@ const TAResumeScreening: React.FC = () => {
         </div>
 
         <div className={`ta-screening-card ${jobId ? "" : "disabled"}`}>
-          <h3>Skill Setup</h3>
+          <h3>JD Setup</h3>
+
           <label>
-            Job Title
+            Job Description
+            <textarea
+              value={jobDescription}
+              onChange={(event) => setJobDescription(event.target.value)}
+              placeholder="Paste JD here, then click Parse JD"
+              disabled={!jobId}
+              rows={6}
+            />
+          </label>
+
+          <button
+            type="button"
+            className="secondary-btn"
+            onClick={parseJD}
+            disabled={isJDParsing || !jobId || !jobDescription.trim()}
+          >
+            {isJDParsing ? "Parsing JD..." : "Parse JD"}
+          </button>
+
+          <label>
+            Title
             <input
               type="text"
               value={jobTitle}
               onChange={(event) => setJobTitle(event.target.value)}
-              placeholder="e.g. Frontend Engineer"
+              placeholder="Parsed title"
+              disabled={!jobId}
+            />
+          </label>
+
+          <label>
+            Domain
+            <input
+              type="text"
+              value={jdDomain}
+              onChange={(event) => setJdDomain(event.target.value)}
+              placeholder="Parsed domain"
               disabled={!jobId}
             />
           </label>
@@ -418,7 +494,6 @@ const TAResumeScreening: React.FC = () => {
               skills={primarySkills}
               onAdd={(value, clear) => addSkill(value, "primary", clear)}
               onRemove={(skill) => removeSkill(skill, "primary")}
-              taxonomy={taxonomy}
               disabled={!jobId}
             />
             <SkillInput
@@ -426,18 +501,42 @@ const TAResumeScreening: React.FC = () => {
               skills={secondarySkills}
               onAdd={(value, clear) => addSkill(value, "secondary", clear)}
               onRemove={(skill) => removeSkill(skill, "secondary")}
-              taxonomy={taxonomy}
               disabled={!jobId}
             />
+          </div>
+
+          <div className="experience-row">
+            <label>
+              Min Experience (Years)
+              <input
+                type="number"
+                min={0}
+                step={0.5}
+                value={jdMinExperience}
+                onChange={(event) => setJdMinExperience(event.target.value)}
+                disabled={!jobId}
+              />
+            </label>
+            <label>
+              Max Experience (Years)
+              <input
+                type="number"
+                min={0}
+                step={0.5}
+                value={jdMaxExperience}
+                onChange={(event) => setJdMaxExperience(event.target.value)}
+                disabled={!jobId}
+              />
+            </label>
           </div>
 
           <button
             type="button"
             className="primary-btn start-processing-btn"
-            onClick={startProcessing}
-            disabled={isProcessing || !jobId}
+            onClick={startJDProcessing}
+            disabled={isJDProcessing || !jobId || !jobDescription.trim()}
           >
-            {isProcessing ? "Starting..." : "Start Processing"}
+            {isJDProcessing ? "Processing JD..." : "Start JD Screening"}
           </button>
         </div>
       </div>
@@ -547,7 +646,6 @@ const TAResumeScreening: React.FC = () => {
 interface SkillInputProps {
   label: string;
   skills: string[];
-  taxonomy: string[];
   onAdd: (value: string, clear: () => void) => void;
   onRemove: (skill: string) => void;
   disabled?: boolean;
@@ -556,72 +654,18 @@ interface SkillInputProps {
 const SkillInput: React.FC<SkillInputProps> = ({
   label,
   skills,
-  taxonomy,
   onAdd,
   onRemove,
   disabled,
 }) => {
   const [value, setValue] = useState("");
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(-1);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const blurTimeout = useRef<number | null>(null);
-
-  const filtered = useMemo(() => {
-    const term = value.trim().toLowerCase();
-    const available = taxonomy.filter((skill) => !skills.includes(skill));
-    const list = term
-      ? available.filter((skill) => skill.toLowerCase().includes(term))
-      : available;
-    return list.slice(0, 10);
-  }, [taxonomy, skills, value]);
-
-  useEffect(() => {
-    setActiveIndex(filtered.length > 0 ? 0 : -1);
-  }, [filtered.length]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (disabled) return;
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      if (!showSuggestions) setShowSuggestions(true);
-      setActiveIndex((prev) => Math.min(filtered.length - 1, prev + 1));
-      return;
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setActiveIndex((prev) => Math.max(0, prev - 1));
-      return;
-    }
     if (event.key === "Enter" || event.key === ",") {
       event.preventDefault();
-      if (showSuggestions && activeIndex >= 0 && filtered[activeIndex]) {
-        onAdd(filtered[activeIndex], () => setValue(""));
-        setShowSuggestions(true);
-        inputRef.current?.focus();
-        return;
-      }
       onAdd(value, () => setValue(""));
-      setShowSuggestions(true);
-      inputRef.current?.focus();
     }
-    if (event.key === "Escape") {
-      setShowSuggestions(false);
-      setActiveIndex(-1);
-    }
-  };
-
-  const handleFocus = () => {
-    if (blurTimeout.current) {
-      window.clearTimeout(blurTimeout.current);
-    }
-    setShowSuggestions(true);
-  };
-
-  const handleBlur = () => {
-    blurTimeout.current = window.setTimeout(() => {
-      setShowSuggestions(false);
-    }, 150);
   };
 
   return (
@@ -629,50 +673,21 @@ const SkillInput: React.FC<SkillInputProps> = ({
       <label>{label}</label>
       <div className="tag-input">
         <input
-          ref={inputRef}
           value={value}
-          onChange={(event) => {
-            setValue(event.target.value);
-            setShowSuggestions(true);
-          }}
+          onChange={(event) => setValue(event.target.value)}
           onKeyDown={handleKeyDown}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
           placeholder={disabled ? "Upload resumes first" : "Type a skill and press Enter"}
           disabled={disabled}
         />
         <button
           type="button"
           className="secondary-btn"
-          onClick={() => {
-            onAdd(value, () => setValue(""));
-            setShowSuggestions(true);
-            inputRef.current?.focus();
-          }}
+          onClick={() => onAdd(value, () => setValue(""))}
           disabled={disabled}
         >
           Add
         </button>
       </div>
-      {showSuggestions && filtered.length > 0 && !disabled && (
-        <div className="skill-suggestions">
-          {filtered.map((skill, index) => (
-            <button
-              type="button"
-              key={skill}
-              className={`suggestion-item ${index === activeIndex ? "active" : ""}`}
-              onClick={() => {
-                onAdd(skill, () => setValue(""));
-                setShowSuggestions(true);
-                inputRef.current?.focus();
-              }}
-              onMouseEnter={() => setActiveIndex(index)}
-            >
-              {skill}
-            </button>
-          ))}
-        </div>
-      )}
       <div className="tag-list">
         {skills.map((skill) => (
           <span key={skill} className="tag">

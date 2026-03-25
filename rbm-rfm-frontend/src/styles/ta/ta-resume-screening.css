@@ -91,7 +91,8 @@
 }
 
 .ta-screening-card input[type="text"],
-.ta-screening-card input[type="number"] {
+.ta-screening-card input[type="number"],
+.ta-screening-card textarea {
   padding: 8px 12px;
   border-radius: 10px;
   border: 1px solid #d9deea;
@@ -610,4 +611,17 @@
   border-radius: 8px;
   padding: 8px;
   line-height: 1.4;
+}
+
+
+.experience-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 900px) {
+  .experience-row {
+    grid-template-columns: 1fr;
+  }
 }
