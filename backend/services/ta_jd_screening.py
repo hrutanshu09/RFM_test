@@ -13,7 +13,7 @@ try:
 except Exception:  # pragma: no cover - optional dependency at runtime
     genai = None
 
-from services.resume_parser import parse_resume_bytes
+from services.resume_parser import extract_text_for_resume, parse_resume_bytes
 from services.ta_resume_screening import load_taxonomy
 
 GEMINI_MODEL = os.getenv("SKILL_AI_MODEL") or os.getenv("GEMINI_MODEL") or "gemini-2.5-flash"
@@ -134,6 +134,48 @@ SKILL_ALIASES_TEST: dict[str, tuple[str, ...]] = {
 JD_PARSE_VERSION = "v1"
 _JD_PARSE_CACHE_LOCK = threading.Lock()
 _JD_PARSE_CACHE: dict[str, dict[str, object]] = {}
+
+GENERIC_SKILL_LABEL_PATTERNS: tuple[str, ...] = (
+    r"^skills?$",
+    r"^key\s+skills?$",
+    r"^relevant\s+skills?$",
+    r"^technical\s+skills?$",
+    r"^core\s+skills?$",
+    r"^skills\s+summary$",
+    r"^competencies$",
+)
+
+SECTION_HEADER_PATTERNS: dict[str, tuple[str, ...]] = {
+    "skills": (
+        r"^skills?$",
+        r"^key\s+skills?$",
+        r"^relevant\s+skills?$",
+        r"^technical\s+skills?$",
+        r"^core\s+skills?$",
+        r"^skills\s+summary$",
+        r"^competencies$",
+    ),
+    "projects": (
+        r"^projects?$",
+        r"^key\s+projects?$",
+        r"^academic\s+projects?$",
+    ),
+    "work_experience": (
+        r"^work\s+experience$",
+        r"^experience$",
+        r"^professional\s+experience$",
+        r"^employment\s+history$",
+        r"^work\s+history$",
+        r"^career\s+history$",
+        r"^professional\s+background$",
+        r"^internships?$",
+    ),
+    "education": (
+        r"^education$",
+        r"^academic\s+background$",
+        r"^qualifications?$",
+    ),
+}
 
 
 def _normalize_domain_label(value: object) -> Optional[str]:
@@ -441,40 +483,263 @@ def _resume_text_blob(parsed_resume: dict) -> str:
 
 def _looks_like_internship_entry(entry: str) -> bool:
     lowered = entry.lower()
-    internship_markers = ("intern", "internship", "trainee", "apprentice", "co-op", "co op")
-    return any(marker in lowered for marker in internship_markers)
+    return bool(re.search(r"\b(intern(?:ship)?|trainee|apprentice|co[-\s]?op)\b", lowered))
 
 
-def _extract_candidate_years(work_entries: list[str]) -> float:
+def _normalize_entry_key(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip().lower())
+
+
+def _build_work_experience_entries(parsed_resume: dict, raw_text: str) -> list[str]:
+    buckets = _extract_section_buckets(parsed_resume, raw_text)
+    entries: list[str] = []
+    seen: set[str] = set()
+
+    for key in ("work_experience_raw_section", "work_experience"):
+        for value in buckets.get(key, []):
+            text_value = str(value or "").strip()
+            if len(text_value) < 2:
+                continue
+            norm = _normalize_entry_key(text_value)
+            if not norm or norm in seen:
+                continue
+            seen.add(norm)
+            entries.append(text_value)
+
+    return entries
+
+
+def _month_number(value: str) -> Optional[int]:
+    month = value.strip().lower()[:3]
+    mapping = {
+        "jan": 1,
+        "feb": 2,
+        "mar": 3,
+        "apr": 4,
+        "may": 5,
+        "jun": 6,
+        "jul": 7,
+        "aug": 8,
+        "sep": 9,
+        "oct": 10,
+        "nov": 11,
+        "dec": 12,
+    }
+    return mapping.get(month)
+
+
+def _month_index(year: int, month: int) -> int:
+    return year * 12 + (month - 1)
+
+
+def _extract_numeric_month_ranges(text: str) -> list[tuple[int, int]]:
+    now = datetime.now()
+    now_idx = _month_index(now.year, now.month)
+    ranges: list[tuple[int, int]] = []
+    sep = r"(?:-|–|—|to)"
+
+    # MM/YYYY - MM/YYYY (or present)
+    mm_yyyy = re.finditer(
+        rf"(?<!\d)(?P<sm>0?[1-9]|1[0-2])[/-](?P<sy>19\d{{2}}|20\d{{2}})\s*{sep}\s*(?:(?P<em>0?[1-9]|1[0-2])[/-](?P<ey>19\d{{2}}|20\d{{2}})|(?P<present>present|current|now))(?!\d)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    for m in mm_yyyy:
+        sy = int(m.group("sy"))
+        sm = int(m.group("sm"))
+        if m.group("present"):
+            ey, em = now.year, now.month
+        else:
+            ey = int(m.group("ey"))
+            em = int(m.group("em"))
+        start_idx = _month_index(sy, sm)
+        end_idx = _month_index(ey, em)
+        if end_idx >= start_idx:
+            ranges.append((start_idx, min(end_idx, now_idx)))
+
+    # YYYY/MM - YYYY/MM (or present)
+    yyyy_mm = re.finditer(
+        rf"(?<!\d)(?P<sy>19\d{{2}}|20\d{{2}})[/-](?P<sm>0?[1-9]|1[0-2])\s*{sep}\s*(?:(?P<ey>19\d{{2}}|20\d{{2}})[/-](?P<em>0?[1-9]|1[0-2])|(?P<present>present|current|now))(?!\d)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    for m in yyyy_mm:
+        sy = int(m.group("sy"))
+        sm = int(m.group("sm"))
+        if m.group("present"):
+            ey, em = now.year, now.month
+        else:
+            ey = int(m.group("ey"))
+            em = int(m.group("em"))
+        start_idx = _month_index(sy, sm)
+        end_idx = _month_index(ey, em)
+        if end_idx >= start_idx:
+            ranges.append((start_idx, min(end_idx, now_idx)))
+
+    return ranges
+
+
+def _extract_month_ranges(text: str) -> list[tuple[int, int]]:
+    now = datetime.now()
+    now_idx = _month_index(now.year, now.month)
+    ranges: list[tuple[int, int]] = []
+
+    month_name = r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+    sep = r"(?:-|\u2013|\u2014|to)"
+
+    month_year_range = re.finditer(
+        rf"(?P<sm>{month_name})[\s,./-]+(?P<sy>19\d{{2}}|20\d{{2}})\s*{sep}\s*(?:(?P<em>{month_name})[\s,./-]+(?P<ey>19\d{{2}}|20\d{{2}})|(?P<present>present|current|now))",
+        text,
+        flags=re.IGNORECASE,
+    )
+    for match in month_year_range:
+        sy = int(match.group("sy"))
+        sm = _month_number(match.group("sm") or "") or 1
+        if match.group("present"):
+            ey, em = now.year, now.month
+        else:
+            ey = int(match.group("ey"))
+            em = _month_number(match.group("em") or "") or 12
+
+        start_idx = _month_index(sy, sm)
+        end_idx = _month_index(ey, em)
+        if end_idx >= start_idx:
+            ranges.append((start_idx, min(end_idx, now_idx)))
+
+    year_range = re.finditer(
+        rf"(?<!\d)(?P<sy>19\d{{2}}|20\d{{2}})\s*{sep}\s*(?:(?P<ey>19\d{{2}}|20\d{{2}})|(?P<present>present|current|now))(?!\d)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    for match in year_range:
+        sy = int(match.group("sy"))
+        start_idx = _month_index(sy, 1)
+        if match.group("present"):
+            end_idx = now_idx
+        else:
+            ey = int(match.group("ey"))
+            end_idx = _month_index(ey, 12)
+        if end_idx >= start_idx:
+            ranges.append((start_idx, min(end_idx, now_idx)))
+
+    ranges.extend(_extract_numeric_month_ranges(text))
+
+    return ranges
+
+
+def _merge_month_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    if not ranges:
+        return []
+
+    ordered = sorted(ranges, key=lambda item: item[0])
+    merged: list[list[int]] = [[ordered[0][0], ordered[0][1]]]
+
+    for start, end in ordered[1:]:
+        prev = merged[-1]
+        if start <= prev[1] + 1:
+            prev[1] = max(prev[1], end)
+        else:
+            merged.append([start, end])
+
+    return [(item[0], item[1]) for item in merged]
+
+
+def _extract_candidate_years(work_entries: list[str]) -> tuple[float, dict[str, Any]]:
     if not work_entries:
-        return 0.0
+        return 0.0, {
+            "entries_raw": [],
+            "entries_used": [],
+            "excluded_as_internship": [],
+            "ranges_detected": [],
+            "months_total": 0,
+            "method": "none",
+        }
 
-    filtered_entries = [str(item) for item in work_entries if str(item).strip() and not _looks_like_internship_entry(str(item))]
+    raw_entries = [str(item).strip() for item in work_entries if str(item).strip()]
+    excluded: list[str] = []
+    filtered_entries: list[str] = []
+
+    for entry in raw_entries:
+        if _looks_like_internship_entry(entry):
+            excluded.append(entry)
+        else:
+            filtered_entries.append(entry)
+
     if not filtered_entries:
-        return 0.0
+        return 0.0, {
+            "entries_raw": raw_entries,
+            "entries_used": [],
+            "excluded_as_internship": excluded,
+            "ranges_detected": [],
+            "months_total": 0,
+            "method": "all_filtered",
+        }
 
     text = "\n".join(filtered_entries)
 
     explicit = re.findall(r"(\d+(?:\.\d+)?)\s*\+?\s*years?", text, flags=re.IGNORECASE)
     if explicit:
         try:
-            return max(float(v) for v in explicit)
+            years = max(float(v) for v in explicit)
+            return years, {
+                "entries_raw": raw_entries,
+                "entries_used": filtered_entries,
+                "excluded_as_internship": excluded,
+                "ranges_detected": [],
+                "months_total": int(round(years * 12)),
+                "method": "explicit_years",
+            }
         except Exception:
             pass
 
+    ranges = _extract_month_ranges(text)
+    merged = _merge_month_ranges(ranges)
+    months_total = 0
+    serializable_ranges: list[dict[str, int]] = []
+    for start, end in merged:
+        months = max(0, end - start + 1)
+        months_total += months
+        serializable_ranges.append({"start": start, "end": end, "months": months})
+
+    if months_total > 0:
+        years = round(months_total / 12.0, 2)
+        return years, {
+            "entries_raw": raw_entries,
+            "entries_used": filtered_entries,
+            "excluded_as_internship": excluded,
+            "ranges_detected": serializable_ranges,
+            "months_total": months_total,
+            "method": "date_ranges",
+        }
+
     years = [int(match) for match in re.findall(r"\b(19\d{2}|20\d{2})\b", text)]
-    if len(years) < 2:
-        return 0.0
+    if len(years) >= 2:
+        now_year = datetime.now().year
+        min_year = min(years)
+        max_year = max(years)
+        if re.search(r"\b(present|current|now)\b", text, flags=re.IGNORECASE):
+            max_year = now_year
+        else:
+            max_year = min(max_year, now_year)
 
-    now_year = datetime.now().year
-    min_year = min(years)
-    max_year = max(years)
-    if re.search(r"\b(present|current|now)\b", text, flags=re.IGNORECASE):
-        max_year = now_year
-    else:
-        max_year = min(max_year, now_year)
+        years_value = float(max(0, max_year - min_year))
+        return years_value, {
+            "entries_raw": raw_entries,
+            "entries_used": filtered_entries,
+            "excluded_as_internship": excluded,
+            "ranges_detected": [],
+            "months_total": int(round(years_value * 12)),
+            "method": "year_fallback",
+        }
 
-    return float(max(0, max_year - min_year))
+    return 0.0, {
+        "entries_raw": raw_entries,
+        "entries_used": filtered_entries,
+        "excluded_as_internship": excluded,
+        "ranges_detected": [],
+        "months_total": 0,
+        "method": "no_dates",
+    }
 
 
 def _normalize_skill_token(value: str) -> str:
@@ -516,6 +781,20 @@ def _build_skill_alias_lookup() -> tuple[dict[str, str], dict[str, set[str]]]:
 
 
 _SKILL_ALIAS_TO_CANONICAL, _SKILL_CANONICAL_VARIANTS = _build_skill_alias_lookup()
+
+_ALL_SKILL_VARIANTS: set[str] = set(_SKILL_ALIAS_TO_CANONICAL.keys())
+
+
+def _contains_any_known_skill(text: str) -> bool:
+    tokenized = _tokenize_skill_text(text)
+    if not tokenized:
+        return False
+    for variant in _ALL_SKILL_VARIANTS:
+        if _count_phrase_mentions(tokenized, variant) > 0:
+            return True
+    return False
+
+
 
 
 def _canonicalize_skill_token(value: str) -> str:
@@ -582,8 +861,201 @@ def _line_matches_variants(line: str, variants: set[str]) -> bool:
     return bool(_matched_aliases_in_text(line, variants))
 
 
+def _detect_section_header(line: str) -> Optional[str]:
+    cleaned = re.sub(r"\s+", " ", line.strip().lower()).rstrip(":")
+    if not cleaned:
+        return None
+
+    for section, patterns in SECTION_HEADER_PATTERNS.items():
+        for pattern in patterns:
+            if re.match(pattern, cleaned, flags=re.IGNORECASE):
+                return section
+    return None
+
+
+def _is_generic_skill_label(value: str) -> bool:
+    cleaned = re.sub(r"\s+", " ", value.strip().lower()).rstrip(":")
+    if not cleaned:
+        return True
+    for pattern in GENERIC_SKILL_LABEL_PATTERNS:
+        if re.match(pattern, cleaned, flags=re.IGNORECASE):
+            return True
+    return False
+
+
+def _looks_like_skill_list_line(line: str) -> bool:
+    cleaned = line.strip()
+    if not cleaned:
+        return False
+    lowered = cleaned.lower()
+    if "@" in cleaned or "http://" in lowered or "https://" in lowered:
+        return False
+    if re.search(r"\+?\d[\d\s().-]{7,}", cleaned):
+        return False
+
+    words = re.findall(r"[A-Za-z0-9+#.]+", cleaned)
+    if len(words) > 16:
+        return False
+
+    has_delimiters = bool(re.search(r"[;|,?/]+", cleaned))
+    has_known_skill = _contains_any_known_skill(cleaned)
+
+    if has_delimiters:
+        return has_known_skill
+
+    return has_known_skill and len(words) <= 8
+
+
+def _split_skill_candidates(line: str) -> list[str]:
+    pieces = re.split(r"[;|,?/]+", line)
+    out: list[str] = []
+    for piece in pieces:
+        value = re.sub(r"^[\-??*]+", "", piece).strip()
+        if not value:
+            continue
+        if _is_generic_skill_label(value):
+            continue
+        out.append(value)
+    return out
+
+
+def _extract_skills_window_lines(raw_text: str) -> list[str]:
+    lines = [line.strip() for line in str(raw_text or "").splitlines() if line.strip()]
+    collected: list[str] = []
+    in_skills = False
+
+    for line in lines:
+        if ":" in line:
+            left, right = line.split(":", 1)
+            inline_section = _detect_section_header(left)
+            if inline_section == "skills":
+                in_skills = True
+                payload = right.strip()
+                if payload and _looks_like_skill_list_line(payload):
+                    chunks = _split_skill_candidates(payload) or [payload]
+                    collected.extend(chunks)
+                continue
+
+        section = _detect_section_header(line)
+        if section:
+            in_skills = section == "skills"
+            continue
+
+        if not in_skills:
+            continue
+        if not _looks_like_skill_list_line(line):
+            continue
+
+        chunks = _split_skill_candidates(line) or [line]
+        collected.extend(chunks)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in collected:
+        norm = re.sub(r"\s+", " ", item.strip().lower())
+        if not norm or norm in seen:
+            continue
+        seen.add(norm)
+        deduped.append(item.strip())
+
+    return deduped
+
+
+def _merged_section_lines(buckets: dict[str, list[str]], section: str) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+
+    for key in (f"{section}_raw_section", section):
+        for value in buckets.get(key, []):
+            text_value = str(value or "").strip()
+            if not text_value:
+                continue
+            norm = re.sub(r"\s+", " ", text_value.lower())
+            if norm in seen:
+                continue
+            seen.add(norm)
+            merged.append(text_value)
+
+    return merged
+
+
+def _extract_section_buckets(parsed: dict, raw_text: str) -> dict[str, list[str]]:
+    buckets: dict[str, list[str]] = {
+        "skills": [],
+        "skills_raw_section": [],
+        "projects": [],
+        "projects_raw_section": [],
+        "work_experience": [],
+        "work_experience_raw_section": [],
+        "education": [],
+        "education_raw_section": [],
+    }
+
+    for key in ("skills", "projects", "work_experience", "education"):
+        values = parsed.get(key) or []
+        if not isinstance(values, list):
+            values = [values]
+
+        for value in values:
+            text = _entry_to_text(value)
+            if not text:
+                continue
+            if key == "skills" and _is_generic_skill_label(text):
+                continue
+            buckets[key].append(text)
+
+    text_source = str(raw_text or "")
+    if text_source:
+        active_section: Optional[str] = None
+        for raw_line in text_source.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if ":" in line:
+                left, right = line.split(":", 1)
+                inline_section = _detect_section_header(left)
+                if inline_section:
+                    active_section = inline_section
+                    inline_payload = right.strip()
+                    if inline_payload:
+                        if active_section != "skills" or not _is_generic_skill_label(inline_payload):
+                            if active_section != "skills" or _looks_like_skill_list_line(inline_payload):
+                                buckets[active_section].append(inline_payload)
+                                if active_section == "skills":
+                                    buckets["skills_raw_section"].append(inline_payload)
+                            elif active_section in {"projects", "work_experience", "education"}:
+                                buckets[f"{active_section}_raw_section"].append(inline_payload)
+                    continue
+
+            section = _detect_section_header(line)
+            if section:
+                active_section = section
+                continue
+
+            if not active_section or len(line) < 2:
+                continue
+            if active_section == "skills" and _is_generic_skill_label(line):
+                continue
+            if active_section == "skills" and not _looks_like_skill_list_line(line):
+                continue
+
+            buckets[active_section].append(line)
+            if active_section == "skills":
+                buckets["skills_raw_section"].append(line)
+            elif active_section in {"projects", "work_experience", "education"}:
+                buckets[f"{active_section}_raw_section"].append(line)
+
+    # Dedicated skills-window extraction to handle multi-column drift and compact delimiter formats.
+    for skill_line in _extract_skills_window_lines(text_source):
+        buckets["skills_raw_section"].append(skill_line)
+        buckets["skills"].append(skill_line)
+
+    return buckets
+
+
 def _collect_skill_evidence(
-    parsed_resume: dict,
+    buckets: dict[str, list[str]],
     variants: set[str],
     max_items: int = 4,
     sections: tuple[str, ...] = ("skills", "projects", "work_experience", "education"),
@@ -592,12 +1064,9 @@ def _collect_skill_evidence(
     seen: set[str] = set()
 
     for section in sections:
-        values = parsed_resume.get(section) or []
-        if not isinstance(values, list):
-            values = [values]
+        section_lines = _merged_section_lines(buckets, section)
 
-        for raw_entry in values:
-            text_value = _entry_to_text(raw_entry)
+        for text_value in section_lines:
             if not text_value:
                 continue
             key = re.sub(r"\s+", " ", text_value.strip().lower())
@@ -614,18 +1083,19 @@ def _collect_skill_evidence(
     return evidence
 
 
-def _count_mentions_in_sections(parsed_resume: dict, variants: set[str], sections: tuple[str, ...]) -> tuple[int, set[str]]:
+def _count_mentions_in_sections(
+    buckets: dict[str, list[str]],
+    variants: set[str],
+    sections: tuple[str, ...],
+) -> tuple[int, set[str]]:
     mentions = 0
     matched_aliases: set[str] = set()
     seen: set[str] = set()
 
     for section in sections:
-        values = parsed_resume.get(section) or []
-        if not isinstance(values, list):
-            values = [values]
+        section_lines = _merged_section_lines(buckets, section)
 
-        for raw_entry in values:
-            text_value = _entry_to_text(raw_entry)
+        for text_value in section_lines:
             if not text_value:
                 continue
             key = re.sub(r"\s+", " ", text_value.strip().lower())
@@ -643,17 +1113,18 @@ def _count_mentions_in_sections(parsed_resume: dict, variants: set[str], section
     return mentions, matched_aliases
 
 
-def _is_listed_in_skills_section(parsed_resume: dict, variants: set[str]) -> bool:
-    values = parsed_resume.get("skills") or []
-    if not isinstance(values, list):
-        values = [values]
-
-    for raw_entry in values:
-        text_value = _entry_to_text(raw_entry)
-        if not text_value:
-            continue
-        if _line_matches_variants(text_value, variants):
+def _is_listed_in_skills_section(buckets: dict[str, list[str]], variants: set[str]) -> bool:
+    # Strict first: base=70 when matched under an actual skills header in raw text.
+    for text_value in buckets.get("skills_raw_section", []):
+        if text_value and _line_matches_variants(text_value, variants):
             return True
+
+    # Fallback: if raw skills window could not be extracted, use parsed skills list.
+    if not buckets.get("skills_raw_section"):
+        for text_value in buckets.get("skills", []):
+            if text_value and _line_matches_variants(text_value, variants):
+                return True
+
     return False
 
 
@@ -675,7 +1146,14 @@ def _experience_score(candidate_years: float, min_years: Optional[float], max_ye
     return 100, "in_range"
 
 
-def _skill_component(parsed_resume: dict, primary: list[str], secondary: list[str]) -> tuple[int, list[dict[str, object]]]:
+def _skill_component(
+    parsed_resume: dict,
+    raw_text: str,
+    primary: list[str],
+    secondary: list[str],
+) -> tuple[int, list[dict[str, object]]]:
+    buckets = _extract_section_buckets(parsed_resume, raw_text)
+
     weighted_sum = 0.0
     total_weight = 0.0
     details: list[dict[str, object]] = []
@@ -685,9 +1163,9 @@ def _skill_component(parsed_resume: dict, primary: list[str], secondary: list[st
         canonical_skill = _canonicalize_skill_token(skill)
         variants = _skill_variants_for(canonical_skill)
 
-        in_skills = _is_listed_in_skills_section(parsed_resume, variants)
+        in_skills = _is_listed_in_skills_section(buckets, variants)
         mentions, matched_aliases = _count_mentions_in_sections(
-            parsed_resume,
+            buckets,
             variants,
             sections=("projects", "work_experience", "education"),
         )
@@ -700,7 +1178,7 @@ def _skill_component(parsed_resume: dict, primary: list[str], secondary: list[st
         weighted_sum += score * weight
         total_weight += weight
 
-        evidence = _collect_skill_evidence(parsed_resume, variants)
+        evidence = _collect_skill_evidence(buckets, variants)
         matched_sections = sorted({item.get("section", "") for item in evidence if item.get("section")})
 
         details.append(
@@ -761,13 +1239,15 @@ def rank_uploaded_resumes(
         content_type = file_item.get("content_type") or ""
         filename = str(file_item.get("filename") or "resume")
 
+        raw_text, _, _ = extract_text_for_resume(file_bytes, content_type)
         parsed_resume, parse_error, _ = parse_resume_bytes(file_bytes, content_type)
         if parse_error or not parsed_resume:
             errors.append({"filename": filename, "error": parse_error or "Parse failed"})
             continue
 
-        skill_score, skill_details = _skill_component(parsed_resume, primary, secondary)
-        candidate_years = _extract_candidate_years(parsed_resume.get("work_experience") or [])
+        skill_score, skill_details = _skill_component(parsed_resume, raw_text or "", primary, secondary)
+        work_entries = _build_work_experience_entries(parsed_resume, raw_text or "")
+        candidate_years, experience_debug = _extract_candidate_years(work_entries)
         experience_score, experience_fit = _experience_score(candidate_years, min_years, max_years, strict)
         jd_context_score = _keyword_overlap_percent(jd_tokens, _resume_text_blob(parsed_resume))
 
@@ -782,6 +1262,7 @@ def rank_uploaded_resumes(
             "jd_context_score": jd_context_score,
             "experience_years_detected": candidate_years,
             "experience_fit": experience_fit,
+            "experience_debug": experience_debug,
             "skill_details": skill_details,
         }
 
@@ -834,13 +1315,15 @@ def rank_uploaded_resumes_from_parsed(
         content_type = file_item.get("content_type") or ""
         filename = str(file_item.get("filename") or "resume")
 
+        raw_text, _, _ = extract_text_for_resume(file_bytes, content_type)
         parsed_resume, parse_error, _ = parse_resume_bytes(file_bytes, content_type)
         if parse_error or not parsed_resume:
             errors.append({"filename": filename, "error": parse_error or "Parse failed"})
             continue
 
-        skill_score, skill_details = _skill_component(parsed_resume, primary, secondary)
-        candidate_years = _extract_candidate_years(parsed_resume.get("work_experience") or [])
+        skill_score, skill_details = _skill_component(parsed_resume, raw_text or "", primary, secondary)
+        work_entries = _build_work_experience_entries(parsed_resume, raw_text or "")
+        candidate_years, experience_debug = _extract_candidate_years(work_entries)
         experience_score, experience_fit = _experience_score(candidate_years, min_years, max_years, strict)
         jd_context_score = _keyword_overlap_percent(jd_tokens, _resume_text_blob(parsed_resume))
 
@@ -855,6 +1338,7 @@ def rank_uploaded_resumes_from_parsed(
             "jd_context_score": jd_context_score,
             "experience_years_detected": candidate_years,
             "experience_fit": experience_fit,
+            "experience_debug": experience_debug,
             "skill_details": skill_details,
         }
 

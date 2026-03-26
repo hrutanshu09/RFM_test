@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { apiClient } from "../../api/client";
 import "../../styles/ta/ta-resume-screening.css";
 
-const SCREENING_STORAGE_KEY = "ta_resume_screening_state_v1";
+let runtimeScreeningState: PersistedScreeningState | null = null;
 
 interface JobCreateResponse {
   job_id: string;
@@ -56,6 +56,13 @@ interface CandidateResult {
     };
   }[];
   source_filename?: string;
+  jd_breakdown?: {
+    skill_score?: number;
+    experience_score?: number;
+    jd_context_score?: number;
+    experience_years_detected?: number;
+    experience_fit?: string;
+  };
 }
 
 interface PersistedScreeningState {
@@ -64,6 +71,7 @@ interface PersistedScreeningState {
   jdDomain: string;
   jdMinExperience: string;
   jdMaxExperience: string;
+  jdAnalyzed: boolean;
   jobId: string | null;
   jobStatus: string | null;
   jobProgress: { processed: number; total: number };
@@ -94,34 +102,39 @@ const TAResumeScreening: React.FC = () => {
   const [jdDomain, setJdDomain] = useState("");
   const [jdMinExperience, setJdMinExperience] = useState("");
   const [jdMaxExperience, setJdMaxExperience] = useState("");
+  const [jdAnalyzed, setJdAnalyzed] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
   const [showFormulaInfo, setShowFormulaInfo] = useState(false);
+  const [resumePreview, setResumePreview] = useState<{ name: string; url: string; isPdf: boolean } | null>(null);
   const formulaRef = useRef<HTMLDivElement | null>(null);
 
+  const resumeBlobUrls = useMemo(() => {
+    const map = new Map<string, string>();
+    files.forEach((file) => {
+      map.set(file.name, URL.createObjectURL(file));
+    });
+    return map;
+  }, [files]);
+
   useEffect(() => {
-    try {
-      const raw = window.sessionStorage.getItem(SCREENING_STORAGE_KEY);
-      if (raw) {
-        const cached = JSON.parse(raw) as PersistedScreeningState;
-        setJobTitle(cached.jobTitle ?? "");
-        setJobDescription(cached.jobDescription ?? "");
-        setJdDomain(cached.jdDomain ?? "");
-        setJdMinExperience(cached.jdMinExperience ?? "");
-        setJdMaxExperience(cached.jdMaxExperience ?? "");
-        setJobId(cached.jobId ?? null);
-        setJobStatus(cached.jobStatus ?? null);
-        setJobProgress(cached.jobProgress ?? { processed: 0, total: 0 });
-        setPrimarySkills(Array.isArray(cached.primarySkills) ? cached.primarySkills : []);
-        setSecondarySkills(Array.isArray(cached.secondarySkills) ? cached.secondarySkills : []);
-        setResults(Array.isArray(cached.results) ? cached.results : []);
-        setErrors(Array.isArray(cached.errors) ? cached.errors : []);
-      }
-    } catch {
-      // Ignore stale/corrupt session state.
-    } finally {
-      setIsHydrated(true);
+    const cached = runtimeScreeningState;
+    if (cached) {
+      setJobTitle(cached.jobTitle ?? "");
+      setJobDescription(cached.jobDescription ?? "");
+      setJdDomain(cached.jdDomain ?? "");
+      setJdMinExperience(cached.jdMinExperience ?? "");
+      setJdMaxExperience(cached.jdMaxExperience ?? "");
+      setJdAnalyzed(Boolean(cached.jdAnalyzed));
+      setJobId(cached.jobId ?? null);
+      setJobStatus(cached.jobStatus ?? null);
+      setJobProgress(cached.jobProgress ?? { processed: 0, total: 0 });
+      setPrimarySkills(Array.isArray(cached.primarySkills) ? cached.primarySkills : []);
+      setSecondarySkills(Array.isArray(cached.secondarySkills) ? cached.secondarySkills : []);
+      setResults(Array.isArray(cached.results) ? cached.results : []);
+      setErrors(Array.isArray(cached.errors) ? cached.errors : []);
     }
+    setIsHydrated(true);
   }, []);
 
   useEffect(() => {
@@ -133,6 +146,7 @@ const TAResumeScreening: React.FC = () => {
       jdDomain,
       jdMinExperience,
       jdMaxExperience,
+      jdAnalyzed,
       jobId,
       jobStatus,
       jobProgress,
@@ -141,8 +155,14 @@ const TAResumeScreening: React.FC = () => {
       results,
       errors,
     };
-    window.sessionStorage.setItem(SCREENING_STORAGE_KEY, JSON.stringify(snapshot));
-  }, [isHydrated, jobTitle, jobDescription, jdDomain, jdMinExperience, jdMaxExperience, jobId, jobStatus, jobProgress, primarySkills, secondarySkills, results, errors]);
+    runtimeScreeningState = snapshot;
+  }, [isHydrated, jobTitle, jobDescription, jdDomain, jdMinExperience, jdMaxExperience, jdAnalyzed, jobId, jobStatus, jobProgress, primarySkills, secondarySkills, results, errors]);
+
+  useEffect(() => {
+    return () => {
+      resumeBlobUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [resumeBlobUrls]);
 
   useEffect(() => {
     const onPointerDown = (event: MouseEvent) => {
@@ -187,6 +207,11 @@ const TAResumeScreening: React.FC = () => {
     setFiles(nextFiles);
   };
 
+  useEffect(() => {
+    if (!isHydrated) return;
+    setJdAnalyzed(false);
+  }, [jobDescription, isHydrated]);
+
   const uploadResumes = async () => {
     if (files.length === 0) {
       setMessage("Select one or more resumes to upload.");
@@ -206,8 +231,15 @@ const TAResumeScreening: React.FC = () => {
       setJobStatus(response.data.status);
       setResults([]);
       setErrors([]);
+      setJobTitle("");
+      setJdDomain("");
+      setPrimarySkills([]);
+      setSecondarySkills([]);
+      setJdMinExperience("");
+      setJdMaxExperience("");
+      setJdAnalyzed(false);
       setJobProgress({ processed: 0, total: files.length });
-      setMessage(`Uploaded ${files.length} resumes. Paste JD, parse it, review details, then start screening.`);
+      setMessage(`Uploaded ${files.length} resumes. Paste JD, analyze it, review details, then start screening.`);
     } catch (err) {
       setMessage("Failed to upload resumes.");
     } finally {
@@ -217,11 +249,11 @@ const TAResumeScreening: React.FC = () => {
 
   const parseJD = async () => {
     if (!jobId) {
-      setMessage("Upload resumes before parsing JD.");
+      setMessage("Upload resumes before analyzing JD.");
       return;
     }
     if (!jobDescription.trim()) {
-      setMessage("Please add a job description to parse.");
+      setMessage("Please add a job description to analyze.");
       return;
     }
 
@@ -249,8 +281,10 @@ const TAResumeScreening: React.FC = () => {
           ? ""
           : String(parsed.max_experience_years),
       );
+      setJdAnalyzed(true);
       setMessage("JD parsed. Review and edit details before starting screening.");
     } catch (err) {
+      setJdAnalyzed(false);
       setMessage("Failed to parse JD.");
     } finally {
       setIsJDParsing(false);
@@ -262,12 +296,14 @@ const TAResumeScreening: React.FC = () => {
       setMessage("Upload resumes before starting JD processing.");
       return;
     }
-    if (!jobDescription.trim()) {
-      setMessage("Please add a job description before JD processing.");
+
+    if (!jdAnalyzed) {
+      setMessage("Please analyze JD before starting screening.");
       return;
     }
 
     setIsJDProcessing(true);
+    setJobStatus("processing");
     setMessage(null);
     try {
       const response = await apiClient.post(`/ta/jobs/${jobId}/process-with-jd`, {
@@ -286,7 +322,11 @@ const TAResumeScreening: React.FC = () => {
       setMessage("JD-based processing completed. Ranked results are ready.");
       await refreshResults();
     } catch (err) {
-      setMessage("Failed to process with JD.");
+      const detail =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+        "Failed to process with JD.";
+      setMessage(String(detail));
+      setJobStatus("uploaded");
     } finally {
       setIsJDProcessing(false);
     }
@@ -330,6 +370,29 @@ const TAResumeScreening: React.FC = () => {
     return () => window.clearInterval(interval);
   }, [jobId, jobStatus]);
 
+  const openUploadedResume = (filename?: string) => {
+    if (!filename) {
+      setMessage("No resume file found for this candidate.");
+      return;
+    }
+
+    const url = resumeBlobUrls.get(filename);
+    if (!url) {
+      setMessage("Resume preview is available only for files selected in this session.");
+      return;
+    }
+
+    const isPdf = filename.toLowerCase().endsWith(".pdf");
+    setResumePreview({ name: filename, url, isPdf });
+  };
+
+  useEffect(() => {
+    if (!resumePreview) return;
+    if (!resumeBlobUrls.has(resumePreview.name)) {
+      setResumePreview(null);
+    }
+  }, [resumeBlobUrls, resumePreview]);
+
   const completionPercent = useMemo(() => {
     if (jobProgress.total === 0) return 0;
     return Math.round((jobProgress.processed / jobProgress.total) * 100);
@@ -338,6 +401,11 @@ const TAResumeScreening: React.FC = () => {
   const isCompleted = jobStatus === "completed";
   const isUploaded = Boolean(jobId);
   const hasStarted = jobStatus === "processing" || jobStatus === "completed";
+  const shouldShowProgress =
+    isJDProcessing ||
+    jobStatus === "processing" ||
+    jobStatus === "completed" ||
+    jobProgress.total > 0;
 
   const steps = [
     {
@@ -395,7 +463,7 @@ const TAResumeScreening: React.FC = () => {
               </div>
             )}
           </div>
-          <p>Upload resumes, parse JD, review parsed details, and rank candidates.</p>
+          <p>Upload resumes, analyze JD, review analyzed details, and rank candidates.</p>
         </div>
         <div className="ta-screening-status">
           <span className={`status-pill ${jobStatus ?? "idle"}`}>
@@ -451,19 +519,18 @@ const TAResumeScreening: React.FC = () => {
             <textarea
               value={jobDescription}
               onChange={(event) => setJobDescription(event.target.value)}
-              placeholder="Paste JD here, then click Parse JD"
+              placeholder="Paste JD here, then click  Analyze JD"
               disabled={!jobId}
               rows={6}
             />
           </label>
-
           <button
             type="button"
             className="secondary-btn"
             onClick={parseJD}
             disabled={isJDParsing || !jobId || !jobDescription.trim()}
           >
-            {isJDParsing ? "Parsing JD..." : "Parse JD"}
+            {isJDParsing ? "Analyzing JD..." : "Analyze JD"}
           </button>
 
           <label>
@@ -472,8 +539,8 @@ const TAResumeScreening: React.FC = () => {
               type="text"
               value={jobTitle}
               onChange={(event) => setJobTitle(event.target.value)}
-              placeholder="Parsed title"
-              disabled={!jobId}
+              placeholder=" Title"
+              disabled={!jobId || !jdAnalyzed}
             />
           </label>
 
@@ -483,8 +550,8 @@ const TAResumeScreening: React.FC = () => {
               type="text"
               value={jdDomain}
               onChange={(event) => setJdDomain(event.target.value)}
-              placeholder="Parsed domain"
-              disabled={!jobId}
+              placeholder="Domain"
+              disabled={!jobId || !jdAnalyzed}
             />
           </label>
 
@@ -494,17 +561,16 @@ const TAResumeScreening: React.FC = () => {
               skills={primarySkills}
               onAdd={(value, clear) => addSkill(value, "primary", clear)}
               onRemove={(skill) => removeSkill(skill, "primary")}
-              disabled={!jobId}
+              disabled={!jobId || !jdAnalyzed}
             />
             <SkillInput
               label="Secondary Skills"
               skills={secondarySkills}
               onAdd={(value, clear) => addSkill(value, "secondary", clear)}
               onRemove={(skill) => removeSkill(skill, "secondary")}
-              disabled={!jobId}
+              disabled={!jobId || !jdAnalyzed}
             />
           </div>
-
           <div className="experience-row">
             <label>
               Min Experience (Years)
@@ -514,7 +580,7 @@ const TAResumeScreening: React.FC = () => {
                 step={0.5}
                 value={jdMinExperience}
                 onChange={(event) => setJdMinExperience(event.target.value)}
-                disabled={!jobId}
+                disabled={!jobId || !jdAnalyzed}
               />
             </label>
             <label>
@@ -525,23 +591,22 @@ const TAResumeScreening: React.FC = () => {
                 step={0.5}
                 value={jdMaxExperience}
                 onChange={(event) => setJdMaxExperience(event.target.value)}
-                disabled={!jobId}
+                disabled={!jobId || !jdAnalyzed}
               />
             </label>
           </div>
-
           <button
             type="button"
             className="primary-btn start-processing-btn"
             onClick={startJDProcessing}
-            disabled={isJDProcessing || !jobId || !jobDescription.trim()}
+            disabled={isJDProcessing || !jobId || !jdAnalyzed}
           >
             {isJDProcessing ? "Processing JD..." : "Start JD Screening"}
           </button>
         </div>
       </div>
 
-      {hasStarted && (
+      {shouldShowProgress && (
       <div className="ta-screening-card">
         <div className="progress-section">
           <div className="progress-label">
@@ -611,6 +676,9 @@ const TAResumeScreening: React.FC = () => {
                   <div className="candidate-meta">
                     {candidate.source_filename || "resume"}
                   </div>
+                  <div className="candidate-meta">
+                    Experience: {candidate.jd_breakdown?.experience_years_detected ?? 0} years
+                  </div>
                   <div className="skill-badges">
                     {candidate.skills.map((skill) => (
                       <span
@@ -622,7 +690,20 @@ const TAResumeScreening: React.FC = () => {
                     ))}
                   </div>
                 </div>
-                <div className="overall-score">{candidate.overall_match_percent}%</div>
+                <div className="result-actions">
+                  <div className="overall-score">{candidate.overall_match_percent}%</div>
+                  <button
+                    type="button"
+                    className="view-resume-btn"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openUploadedResume(candidate.source_filename);
+                    }}
+                    disabled={!candidate.source_filename || !resumeBlobUrls.has(candidate.source_filename)}
+                  >
+                    View Resume
+                  </button>
+                </div>
               </button>
             ))}
           </div>
@@ -639,6 +720,33 @@ const TAResumeScreening: React.FC = () => {
           </div>
         )}
       </div>
+
+      {resumePreview && (
+        <div className="resume-preview-overlay" role="dialog" aria-modal="true" aria-label="Resume Preview">
+          <div className="resume-preview-card">
+            <div className="resume-preview-header">
+              <div className="resume-preview-title">{resumePreview.name}</div>
+              <button
+                type="button"
+                className="resume-preview-close"
+                onClick={() => setResumePreview(null)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="resume-preview-body">
+              {resumePreview.isPdf ? (
+                <iframe title={resumePreview.name} src={resumePreview.url} className="resume-preview-frame" />
+              ) : (
+                <div className="resume-preview-fallback">
+                  Preview is supported for PDF files in this view.
+                  <a href={resumePreview.url} download={resumePreview.name}>Download Resume</a>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 };

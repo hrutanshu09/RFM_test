@@ -1004,120 +1004,123 @@ def parse_jd_for_job(job_id: str, payload: JDParseRequest):
 
 @router.post("/jobs/{job_id}/process-with-jd")
 async def process_with_jd(job_id: str, payload: JDProcessRequest):
-    job = get_job(job_id)
-    if not job:
-        return JSONResponse(status_code=404, content={"detail": "Job not found."})
+    try:
+        job = get_job(job_id)
+        if not job:
+            return JSONResponse(status_code=404, content={"detail": "Job not found."})
 
-    jd_text = (payload.job_description or "").strip()
-    if not jd_text:
-        return JSONResponse(status_code=400, content={"detail": "job_description is required."})
+        jd_text = (payload.job_description or "").strip()
+        if not jd_text:
+            return JSONResponse(status_code=400, content={"detail": "job_description is required."})
 
-    queued_files = get_job_queued_files(job_id)
-    if not queued_files:
-        return JSONResponse(status_code=400, content={"detail": "No uploaded resumes found for this job."})
+        queued_files = get_job_queued_files(job_id)
+        if not queued_files:
+            return JSONResponse(status_code=400, content={"detail": "No uploaded resumes found for this job."})
 
-    parsed, _, parse_error, parse_meta = parse_jd_validated(
-        jd_text,
-        strict_upper_bound=payload.strict_upper_bound,
-        force_refresh=payload.force_refresh,
-    )
-    if parse_error or not parsed:
-        return JSONResponse(
-            status_code=500,
-            content={"detail": parse_error or "JD parse failed.", "validation_errors": parse_meta.get("validation_errors", [])},
+        parsed, _, parse_error, parse_meta = parse_jd_validated(
+            jd_text,
+            strict_upper_bound=payload.strict_upper_bound,
+            force_refresh=payload.force_refresh,
+        )
+        if parse_error or not parsed:
+            return JSONResponse(
+                status_code=500,
+                content={"detail": parse_error or "JD parse failed.", "validation_errors": parse_meta.get("validation_errors", [])},
+            )
+
+        if payload.title is not None:
+            parsed["title"] = payload.title.strip() or None
+        if payload.domain is not None:
+            parsed["domain"] = payload.domain.strip() or parsed.get("domain")
+        if payload.primary_skills:
+            parsed["primary_skills"] = _normalize_jd_skills(payload.primary_skills)
+        if payload.secondary_skills:
+            parsed["secondary_skills"] = _normalize_jd_skills(payload.secondary_skills)
+        if payload.min_experience_years is not None:
+            parsed["min_experience_years"] = float(payload.min_experience_years)
+        if payload.max_experience_years is not None:
+            parsed["max_experience_years"] = float(payload.max_experience_years)
+        if payload.keywords:
+            parsed["keywords"] = [str(k).strip() for k in payload.keywords if str(k).strip()]
+        if payload.nice_to_have:
+            parsed["nice_to_have"] = _normalize_jd_skills(payload.nice_to_have)
+        parsed["strict_upper_bound"] = bool(payload.strict_upper_bound)
+
+        set_job_processing_state(job_id)
+
+        response, error_type = rank_uploaded_resumes_from_parsed(
+            files=queued_files,
+            jd_text=jd_text,
+            jd_parsed=parsed,
+            debug=payload.debug,
         )
 
-    if payload.title is not None:
-        parsed["title"] = payload.title.strip() or None
-    if payload.domain is not None:
-        parsed["domain"] = payload.domain.strip() or parsed.get("domain")
-    if payload.primary_skills:
-        parsed["primary_skills"] = _normalize_jd_skills(payload.primary_skills)
-    if payload.secondary_skills:
-        parsed["secondary_skills"] = _normalize_jd_skills(payload.secondary_skills)
-    if payload.min_experience_years is not None:
-        parsed["min_experience_years"] = float(payload.min_experience_years)
-    if payload.max_experience_years is not None:
-        parsed["max_experience_years"] = float(payload.max_experience_years)
-    if payload.keywords:
-        parsed["keywords"] = [str(k).strip() for k in payload.keywords if str(k).strip()]
-    if payload.nice_to_have:
-        parsed["nice_to_have"] = _normalize_jd_skills(payload.nice_to_have)
-    parsed["strict_upper_bound"] = bool(payload.strict_upper_bound)
+        if error_type or not response:
+            return JSONResponse(status_code=500, content=response or {"detail": "JD processing failed."})
 
-    set_job_processing_state(job_id)
+        jd_parsed = response.get("jd_parsed") or {}
+        ranked_candidates = response.get("ranked_candidates") or []
 
-    response, error_type = rank_uploaded_resumes_from_parsed(
-        files=queued_files,
-        jd_text=jd_text,
-        jd_parsed=parsed,
-        debug=payload.debug,
-    )
+        mapped_results = []
+        for candidate in ranked_candidates:
+            skill_details = candidate.get("skill_details") or []
+            skills = []
+            for detail in skill_details:
+                evidence_lines = [str(ev.get("text", "")) for ev in (detail.get("evidence") or []) if isinstance(ev, dict) and str(ev.get("text", "")).strip()]
+                skills.append(
+                    {
+                        "skill": detail.get("skill"),
+                        "percent": int(detail.get("score", 0) or 0),
+                        "evidence": evidence_lines,
+                        "is_primary": bool(detail.get("is_primary")),
+                        "debug": {
+                            "base": detail.get("base"),
+                            "occurrence_bonus": detail.get("bonus"),
+                            "matched_in_sections": detail.get("mentioned_in_sections") or [],
+                            "alias_used": bool(detail.get("matched_aliases")),
+                            "evidence_count": len(evidence_lines),
+                            "matched_tokens": detail.get("matched_aliases") or [],
+                        },
+                    }
+                )
 
-    if error_type or not response:
-        return JSONResponse(status_code=500, content=response or {"detail": "JD processing failed."})
-
-    jd_parsed = response.get("jd_parsed") or {}
-    ranked_candidates = response.get("ranked_candidates") or []
-
-    mapped_results = []
-    for candidate in ranked_candidates:
-        skill_details = candidate.get("skill_details") or []
-        skills = []
-        for detail in skill_details:
-            evidence_lines = [str(ev.get("text", "")) for ev in (detail.get("evidence") or []) if isinstance(ev, dict) and str(ev.get("text", "")).strip()]
-            skills.append(
+            mapped_results.append(
                 {
-                    "skill": detail.get("skill"),
-                    "percent": int(detail.get("score", 0) or 0),
-                    "evidence": evidence_lines,
-                    "is_primary": bool(detail.get("is_primary")),
-                    "debug": {
-                        "base": detail.get("base"),
-                        "occurrence_bonus": detail.get("bonus"),
-                        "matched_in_sections": detail.get("mentioned_in_sections") or [],
-                        "alias_used": bool(detail.get("matched_aliases")),
-                        "evidence_count": len(evidence_lines),
-                        "matched_tokens": detail.get("matched_aliases") or [],
+                    "candidate_id": f"cand_jd_{abs(hash(str(candidate.get('filename') or candidate.get('name') or 'cand')))%100000000:08d}",
+                    "name": candidate.get("name") or candidate.get("filename") or "resume",
+                    "overall_match_percent": int(candidate.get("score", 0) or 0),
+                    "skills": skills,
+                    "source_filename": candidate.get("filename"),
+                    "jd_breakdown": {
+                        "skill_score": candidate.get("skill_score", 0),
+                        "experience_score": candidate.get("experience_score", 0),
+                        "jd_context_score": candidate.get("jd_context_score", 0),
+                        "experience_years_detected": candidate.get("experience_years_detected", 0),
+                        "experience_fit": candidate.get("experience_fit"),
                     },
                 }
             )
 
-        mapped_results.append(
-            {
-                "candidate_id": f"cand_jd_{abs(hash(str(candidate.get('filename') or candidate.get('name') or 'cand')))%100000000:08d}",
-                "name": candidate.get("name") or candidate.get("filename") or "resume",
-                "overall_match_percent": int(candidate.get("score", 0) or 0),
-                "skills": skills,
-                "source_filename": candidate.get("filename"),
-                "jd_breakdown": {
-                    "skill_score": candidate.get("skill_score", 0),
-                    "experience_score": candidate.get("experience_score", 0),
-                    "jd_context_score": candidate.get("jd_context_score", 0),
-                    "experience_years_detected": candidate.get("experience_years_detected", 0),
-                    "experience_fit": candidate.get("experience_fit"),
-                },
-            }
+        apply_external_results(
+            job_id,
+            title=jd_parsed.get("title") or job.get("title") or "",
+            primary_skills=list(jd_parsed.get("primary_skills") or []),
+            secondary_skills=list(jd_parsed.get("secondary_skills") or []),
+            min_match_percent=0,
+            results=mapped_results,
+            errors=list(response.get("errors") or []),
+            total=int(response.get("total_uploaded") or len(queued_files)),
         )
 
-    apply_external_results(
-        job_id,
-        title=jd_parsed.get("title") or job.get("title") or "",
-        primary_skills=list(jd_parsed.get("primary_skills") or []),
-        secondary_skills=list(jd_parsed.get("secondary_skills") or []),
-        min_match_percent=0,
-        results=mapped_results,
-        errors=list(response.get("errors") or []),
-        total=int(response.get("total_uploaded") or len(queued_files)),
-    )
-
-    return {
-        "job_id": job_id,
-        "status": "completed",
-        "jd_parsed": jd_parsed,
-        "ranked": len(mapped_results),
-        "errors": len(response.get("errors") or []),
-    }
+        return {
+            "job_id": job_id,
+            "status": "completed",
+            "jd_parsed": jd_parsed,
+            "ranked": len(mapped_results),
+            "errors": len(response.get("errors") or []),
+        }
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"detail": f"JD processing crashed: {exc.__class__.__name__}: {exc}"})
 
 
 @router.post("/jobs/{job_id}/resumes")
