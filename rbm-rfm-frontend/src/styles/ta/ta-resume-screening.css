@@ -568,6 +568,37 @@
   margin-top: 12px;
 }
 
+.processing-status-inline,
+.processing-status-banner {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.processing-status-banner {
+  margin-bottom: 8px;
+}
+
+.processing-status-inline.active,
+.processing-status-banner.active {
+  color: #1f4b99;
+}
+
+.processing-status-inline.done,
+.processing-status-banner.done {
+  color: #0f6b3a;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
 
 .formula-card {
   margin: 12px 0 18px;

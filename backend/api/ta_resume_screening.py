@@ -639,7 +639,17 @@ def _keyword_overlap_percent(jd_tokens: set[str], candidate_text: str) -> int:
 def _entry_to_text(entry: object) -> str:
     if isinstance(entry, dict):
         parts: list[str] = []
-        for key in ("name", "summary", "description"):
+        for key in (
+            "name",
+            "project_name",
+            "title",
+            "role",
+            "company",
+            "summary",
+            "brief_summary",
+            "description",
+            "dates",
+        ):
             value = entry.get(key)
             if value:
                 parts.append(str(value).strip())

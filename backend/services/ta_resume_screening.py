@@ -213,8 +213,21 @@ def _is_generic_skill_label(value: str) -> bool:
 
 def _stringify_bucket_value(value: Any) -> str:
     if isinstance(value, dict):
-        name = str(value.get("name") or "").strip()
-        summary = str(value.get("summary") or "").strip()
+        name = str(
+            value.get("name")
+            or value.get("project_name")
+            or value.get("title")
+            or value.get("role")
+            or value.get("company")
+            or ""
+        ).strip()
+        summary = str(
+            value.get("summary")
+            or value.get("brief_summary")
+            or value.get("description")
+            or value.get("dates")
+            or ""
+        ).strip()
         tech_stack = value.get("tech_stack")
         tech_text = ""
         if isinstance(tech_stack, list):

@@ -630,6 +630,21 @@ def _build_work_experience_entries(parsed_resume: dict, raw_text: str) -> list[s
     return entries
 
 
+def _looks_like_date_range_line(entry: str) -> bool:
+    text = str(entry or "").strip()
+    if not text:
+        return False
+    if _extract_month_ranges(text):
+        return True
+    return bool(
+        re.search(
+            r"\b(19\d{2}|20\d{2})\b.*(?:-|to|\u2013|\u2014).*(?:\b(19\d{2}|20\d{2})\b|present|current|now)",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
 def _month_number(value: str) -> Optional[int]:
     month = value.strip().lower()[:3]
     mapping = {
@@ -657,7 +672,7 @@ def _extract_numeric_month_ranges(text: str) -> list[tuple[int, int]]:
     now = datetime.now()
     now_idx = _month_index(now.year, now.month)
     ranges: list[tuple[int, int]] = []
-    sep = r"(?:-|–|—|to)"
+    sep = r"(?:-|\u2013|\u2014|to)"
 
     # MM/YYYY - MM/YYYY (or present)
     mm_yyyy = re.finditer(
@@ -779,9 +794,21 @@ def _extract_candidate_years(work_entries: list[str]) -> tuple[float, dict[str, 
     raw_entries = [str(item).strip() for item in work_entries if str(item).strip()]
     excluded: list[str] = []
     filtered_entries: list[str] = []
+    excluded_indexes: set[int] = set()
 
-    for entry in raw_entries:
-        if _looks_like_internship_entry(entry):
+    # Exclude internship title lines and adjacent date-range lines so internship
+    # periods are not counted via orphan date entries.
+    for idx, entry in enumerate(raw_entries):
+        if not _looks_like_internship_entry(entry):
+            continue
+        excluded_indexes.add(idx)
+        if idx + 1 < len(raw_entries) and _looks_like_date_range_line(raw_entries[idx + 1]):
+            excluded_indexes.add(idx + 1)
+        if idx - 1 >= 0 and _looks_like_date_range_line(raw_entries[idx - 1]):
+            excluded_indexes.add(idx - 1)
+
+    for idx, entry in enumerate(raw_entries):
+        if idx in excluded_indexes:
             excluded.append(entry)
         else:
             filtered_entries.append(entry)
@@ -955,7 +982,17 @@ def _keyword_overlap_percent(jd_tokens: set[str], candidate_text: str) -> int:
 def _entry_to_text(entry: object) -> str:
     if isinstance(entry, dict):
         parts: list[str] = []
-        for key in ("name", "summary", "description"):
+        for key in (
+            "name",
+            "project_name",
+            "title",
+            "role",
+            "company",
+            "summary",
+            "brief_summary",
+            "description",
+            "dates",
+        ):
             value = entry.get(key)
             if value:
                 parts.append(str(value).strip())
@@ -1025,6 +1062,30 @@ def _looks_like_skill_list_line(line: str) -> bool:
         return has_known_skill
 
     return has_known_skill and len(words) <= 8
+
+
+def _looks_like_explicit_skill_entry(line: str) -> bool:
+    """
+    Conservative fallback check when raw skills section is unavailable.
+    Prevents long project/experience sentences from being treated as
+    explicit skills-list entries.
+    """
+    cleaned = str(line or "").strip()
+    if not cleaned:
+        return False
+    if _detect_section_header(cleaned) or _is_generic_skill_label(cleaned):
+        return False
+    if len(cleaned) > 80:
+        return False
+    if "@" in cleaned or "http://" in cleaned.lower() or "https://" in cleaned.lower():
+        return False
+    words = re.findall(r"[A-Za-z0-9+#.]+", cleaned)
+    if not words or len(words) > 8:
+        return False
+    # Full sentences usually indicate non-skills content in parsed fallbacks.
+    if re.search(r"[.!?]", cleaned) and not re.search(r"[,;|/]", cleaned):
+        return False
+    return True
 
 
 def _split_skill_candidates(line: str) -> list[str]:
@@ -1234,15 +1295,57 @@ def _count_mentions_in_sections(
     return mentions, matched_aliases
 
 
+def _count_mentions_in_raw_fallback(
+    raw_text: str,
+    variants: set[str],
+    max_evidence: int = 4,
+) -> tuple[int, set[str], list[str]]:
+    mentions = 0
+    matched_aliases: set[str] = set()
+    evidence_lines: list[str] = []
+    seen: set[str] = set()
+
+    for line in (raw_text or "").splitlines():
+        text_value = str(line or "").strip()
+        if len(text_value) < 3:
+            continue
+        if _detect_section_header(text_value):
+            continue
+        if _is_generic_skill_label(text_value):
+            continue
+        # Skip compact skill-list style lines to avoid adding bonus from "Skills:" text.
+        if _looks_like_skill_list_line(text_value) and len(text_value) < 90:
+            continue
+
+        key = re.sub(r"\s+", " ", text_value.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+
+        aliases_in_line = _matched_aliases_in_text(text_value, variants)
+        if not aliases_in_line:
+            continue
+
+        mentions += 1
+        matched_aliases.update(aliases_in_line)
+        if len(evidence_lines) < max_evidence:
+            evidence_lines.append(text_value)
+
+    return mentions, matched_aliases, evidence_lines
+
+
 def _is_listed_in_skills_section(buckets: dict[str, list[str]], variants: set[str]) -> bool:
     # Strict first: base=70 when matched under an actual skills header in raw text.
     for text_value in buckets.get("skills_raw_section", []):
         if text_value and _line_matches_variants(text_value, variants):
             return True
 
-    # Fallback: if raw skills window could not be extracted, use parsed skills list.
+    # Conservative fallback: if raw skills window could not be extracted, use only
+    # parsed skills entries that look like explicit skill list items.
     if not buckets.get("skills_raw_section"):
         for text_value in buckets.get("skills", []):
+            if not _looks_like_explicit_skill_entry(text_value):
+                continue
             if text_value and _line_matches_variants(text_value, variants):
                 return True
 
@@ -1285,11 +1388,25 @@ def _skill_component(
         variants = _skill_variants_for(canonical_skill)
 
         in_skills = _is_listed_in_skills_section(buckets, variants)
-        mentions, matched_aliases = _count_mentions_in_sections(
+        mentions_in_sections, matched_aliases = _count_mentions_in_sections(
             buckets,
             variants,
             sections=("projects", "work_experience", "education"),
         )
+        mentions = mentions_in_sections
+        mentions_in_raw_fallback = 0
+        raw_fallback_evidence: list[str] = []
+        mention_source = "sections"
+        if mentions == 0 and raw_text:
+            (
+                mentions_in_raw_fallback,
+                raw_fallback_aliases,
+                raw_fallback_evidence,
+            ) = _count_mentions_in_raw_fallback(raw_text, variants)
+            if mentions_in_raw_fallback > 0:
+                mentions = mentions_in_raw_fallback
+                matched_aliases.update(raw_fallback_aliases)
+                mention_source = "raw_fallback"
 
         base = 70 if in_skills else (50 if mentions > 0 else 0)
         bonus = mentions * 5
@@ -1300,6 +1417,8 @@ def _skill_component(
         total_weight += weight
 
         evidence = _collect_skill_evidence(buckets, variants)
+        if not evidence and raw_fallback_evidence:
+            evidence = [{"section": "raw_text", "text": line} for line in raw_fallback_evidence]
         matched_sections = sorted({item.get("section", "") for item in evidence if item.get("section")})
 
         details.append(
@@ -1310,6 +1429,9 @@ def _skill_component(
                 "base": base,
                 "bonus": bonus,
                 "mentions": mentions,
+                "mentions_in_sections": mentions_in_sections,
+                "mentions_in_raw_fallback": mentions_in_raw_fallback,
+                "mention_source": mention_source,
                 "score": score,
                 "matched_aliases": sorted(matched_aliases),
                 "mentioned_in_sections": matched_sections,

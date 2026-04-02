@@ -406,6 +406,15 @@ const TAResumeScreening: React.FC = () => {
     jobStatus === "processing" ||
     jobStatus === "completed" ||
     jobProgress.total > 0;
+  const processingStatusText = isJDProcessing
+    ? "JD analysis and candidate ranking is running..."
+    : jobStatus === "processing"
+      ? "Processing resumes for this requisition..."
+      : jobStatus === "completed"
+        ? "Processing complete. Rankings are ready."
+        : jobStatus === "uploaded"
+          ? "Resumes uploaded. Analyze JD and start processing."
+          : "Waiting to start processing.";
 
   const steps = [
     {
@@ -603,12 +612,20 @@ const TAResumeScreening: React.FC = () => {
           >
             {isJDProcessing ? "Processing JD..." : "Start JD Screening"}
           </button>
+          <div className={`processing-status-inline ${jobStatus === "completed" ? "done" : "active"}`}>
+            <span className="status-dot" />
+            {processingStatusText}
+          </div>
         </div>
       </div>
 
       {shouldShowProgress && (
       <div className="ta-screening-card">
         <div className="progress-section">
+          <div className={`processing-status-banner ${jobStatus === "completed" ? "done" : "active"}`}>
+            <span className="status-dot" />
+            {processingStatusText}
+          </div>
           <div className="progress-label">
             Processed {jobProgress.processed}/{jobProgress.total}
           </div>

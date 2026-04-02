@@ -60,6 +60,7 @@ import {
 import {
   fetchCandidates,
   createCandidate,
+  deleteCandidate,
   uploadResume,
   getCandidateActionErrorMessage,
   type Candidate,
@@ -236,6 +237,73 @@ interface UserDirectoryEntry {
   roles?: string[];
 }
 
+interface RequisitionPoolAvailableCandidate {
+  profile_id: number;
+  full_name: string;
+  email?: string | null;
+  phone?: string | null;
+  latest_resume_id?: number | null;
+  latest_parser_status?: string | null;
+  skills_count?: number;
+  is_selected?: boolean;
+}
+
+interface RequisitionPoolSelectedCandidate {
+  profile_id: number;
+  resume_id?: number | null;
+  status?: string;
+  candidate?: {
+    full_name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+  };
+}
+
+interface RequisitionPoolPipelineCandidate {
+  id: number;
+  req_id: number;
+  profile_id: number;
+  legacy_candidate_id?: number | null;
+  resume_id?: number | null;
+  status?: string;
+  pipeline_stage?: string | null;
+  requisition_item_id?: number | null;
+  candidate?: {
+    full_name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+  };
+}
+
+interface RequisitionRankingSkill {
+  skill: string;
+  percent: number;
+  evidence?: string[];
+  is_primary: boolean;
+}
+
+interface RequisitionRankedCandidate {
+  candidate_id: string;
+  profile_id?: number | null;
+  resume_id?: number | null;
+  name: string;
+  overall_match_percent: number;
+  skills: RequisitionRankingSkill[];
+  jd_breakdown?: {
+    skill_score?: number;
+    experience_score?: number;
+    jd_context_score?: number;
+    experience_years_detected?: number;
+    experience_fit?: string;
+  };
+}
+
+type CandidateView = Candidate & {
+  pool_profile_id?: number;
+  pool_row_id?: number;
+  from_pool?: boolean;
+};
+
 const RequisitionDetail: React.FC<RequisitionDetailsProps> = ({
   requisitionId,
   onBack,
@@ -322,9 +390,9 @@ const RequisitionDetail: React.FC<RequisitionDetailsProps> = ({
   const [loadingJd, setLoadingJd] = useState(false);
 
   // ---- Candidate Pipeline state ----
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [candidates, setCandidates] = useState<CandidateView[]>([]);
   const [candidatesLoading, setCandidatesLoading] = useState(false);
-  const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(
+  const [selectedCandidate, setSelectedCandidate] = useState<CandidateView | null>(
     null,
   );
   const [showAddCandidate, setShowAddCandidate] = useState(false);
@@ -335,18 +403,48 @@ const RequisitionDetail: React.FC<RequisitionDetailsProps> = ({
   const [newCandidateEmail, setNewCandidateEmail] = useState("");
   const [newCandidatePhone, setNewCandidatePhone] = useState("");
   const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [prefilledResumePath, setPrefilledResumePath] = useState("");
+  const [selectedPoolProfileIdForAdd, setSelectedPoolProfileIdForAdd] = useState<number | null>(null);
   const [addingCandidate, setAddingCandidate] = useState(false);
+  const [deletingCandidateId, setDeletingCandidateId] = useState<number | null>(null);
+  const [candidatePendingDelete, setCandidatePendingDelete] = useState<CandidateView | null>(null);
   const [candidateStageFilter, setCandidateStageFilter] =
     useState<string>("all");
   const [candidateItemFilter, setCandidateItemFilter] = useState<
     number | "all"
   >("all");
+  const [poolAvailable, setPoolAvailable] = useState<
+    RequisitionPoolAvailableCandidate[]
+  >([]);
+  const [poolSelected, setPoolSelected] = useState<
+    RequisitionPoolSelectedCandidate[]
+  >([]);
+  const [selectedProfileIds, setSelectedProfileIds] = useState<number[]>([]);
+  const [candidatePoolLoading, setCandidatePoolLoading] = useState(false);
+  const [candidatePoolSyncing, setCandidatePoolSyncing] = useState(false);
+  const [jdRankingText, setJdRankingText] = useState("");
+  const [jdRankingStatus, setJdRankingStatus] = useState<
+    "idle" | "processing" | "completed" | "error"
+  >("idle");
+  const [jdRankingMessage, setJdRankingMessage] = useState<string | null>(null);
+  const [rankedCandidates, setRankedCandidates] = useState<
+    RequisitionRankedCandidate[]
+  >([]);
+  const [rankedResumePreview, setRankedResumePreview] = useState<{
+    candidateName: string;
+    url: string;
+    isPdf: boolean;
+  } | null>(null);
 
   const parseReqId = (value?: string | null) => {
     if (!value) return null;
     const match = value.match(/\d+/);
     return match ? Number(match[0]) : null;
   };
+  const reqNumericId = useMemo(
+    () => parseReqId(ticket?.id ?? effectiveTicketId),
+    [ticket?.id, effectiveTicketId],
+  );
 
   const formatRelativeTime = (dateValue?: string | null) => {
     if (!dateValue) return "—";
@@ -604,14 +702,214 @@ const RequisitionDetail: React.FC<RequisitionDetailsProps> = ({
     if (!reqId) return;
     setCandidatesLoading(true);
     try {
-      const data = await fetchCandidates(reqId);
-      setCandidates(data);
+      const [poolRes, legacy] = await Promise.all([
+        apiClient
+          .get<{ pipeline: RequisitionPoolPipelineCandidate[] }>(
+            `/requisitions/${reqId}/candidate-pool/pipeline`,
+          )
+          .catch(() => ({ data: { pipeline: [] as RequisitionPoolPipelineCandidate[] } })),
+        fetchCandidates(reqId).catch(() => [] as Candidate[]),
+      ]);
+
+      const pooledAsCandidates: CandidateView[] = (poolRes.data?.pipeline ?? []).map((row) => ({
+        candidate_id: row.legacy_candidate_id ?? row.id,
+        requisition_item_id: row.requisition_item_id ?? 0,
+        requisition_id: reqId,
+        full_name: row.candidate?.full_name || `Profile ${row.profile_id}`,
+        email: row.candidate?.email || "",
+        phone: row.candidate?.phone || null,
+        resume_path: row.resume_id
+          ? `/api/candidate-intake/resumes/${row.resume_id}/file`
+          : null,
+        current_stage: (row.pipeline_stage || "Sourced") as Candidate["current_stage"],
+        added_by: null,
+        created_at: null,
+        updated_at: null,
+        interviews: [],
+        pool_profile_id: row.profile_id,
+        pool_row_id: row.id,
+        from_pool: true,
+      }));
+
+      const seen = new Set<number>(pooledAsCandidates.map((c) => c.candidate_id));
+      const merged = [...pooledAsCandidates];
+      legacy.forEach((c) => {
+        if (!seen.has(c.candidate_id)) {
+          merged.push(c);
+        }
+      });
+      setCandidates(merged);
     } catch {
       setCandidates([]);
     } finally {
       setCandidatesLoading(false);
     }
   }, [effectiveTicketId]);
+
+  const loadCandidatePool = useCallback(async () => {
+    if (!reqNumericId) return;
+    setCandidatePoolLoading(true);
+    try {
+      const [availableRes, selectedRes, rankingsRes] = await Promise.all([
+        apiClient.get<{ candidates: RequisitionPoolAvailableCandidate[] }>(
+          `/requisitions/${reqNumericId}/candidate-pool/available`,
+        ),
+        apiClient.get<{ selected: RequisitionPoolSelectedCandidate[] }>(
+          `/requisitions/${reqNumericId}/candidate-pool/selected`,
+        ),
+        apiClient.get<{ ranked_candidates: RequisitionRankedCandidate[] }>(
+          `/requisitions/${reqNumericId}/candidate-pool/rankings`,
+        ),
+      ]);
+
+      const available = availableRes.data?.candidates ?? [];
+      const selected = selectedRes.data?.selected ?? [];
+      const ranked = rankingsRes.data?.ranked_candidates ?? [];
+
+      setPoolAvailable(available);
+      setPoolSelected(selected);
+      setRankedCandidates(ranked);
+      setSelectedProfileIds(
+        available.filter((c) => c.is_selected).map((c) => c.profile_id),
+      );
+    } catch {
+      setPoolAvailable([]);
+      setPoolSelected([]);
+      setRankedCandidates([]);
+    } finally {
+      setCandidatePoolLoading(false);
+    }
+  }, [reqNumericId]);
+
+  const handleAttachCandidatesToPool = useCallback(async () => {
+    if (!reqNumericId || selectedProfileIds.length === 0) return;
+    setCandidatePoolSyncing(true);
+    setJdRankingMessage(null);
+    try {
+      await apiClient.post(`/requisitions/${reqNumericId}/candidate-pool/attach`, {
+        profile_ids: selectedProfileIds,
+      });
+      await loadCandidatePool();
+      setJdRankingMessage("Selected candidates attached to requisition pool.");
+    } catch {
+      setJdRankingMessage("Failed to attach candidates to requisition pool.");
+      setJdRankingStatus("error");
+    } finally {
+      setCandidatePoolSyncing(false);
+    }
+  }, [reqNumericId, selectedProfileIds, loadCandidatePool]);
+
+  const handleRemoveFromPool = useCallback(
+    async (profileId: number) => {
+      if (!reqNumericId) return;
+      setCandidatePoolSyncing(true);
+      setJdRankingMessage(null);
+      try {
+        await apiClient.delete(
+          `/requisitions/${reqNumericId}/candidate-pool/${profileId}`,
+        );
+        await loadCandidatePool();
+        setJdRankingMessage("Candidate removed from requisition pool.");
+      } catch {
+        setJdRankingMessage("Failed to remove candidate from requisition pool.");
+        setJdRankingStatus("error");
+      } finally {
+        setCandidatePoolSyncing(false);
+      }
+    },
+    [reqNumericId, loadCandidatePool],
+  );
+
+  const handleRunJDRanking = useCallback(async () => {
+    if (!reqNumericId) return;
+    if (!jdRankingText.trim()) {
+      setJdRankingMessage("Please add JD text before starting ranking.");
+      setJdRankingStatus("error");
+      return;
+    }
+
+    setJdRankingStatus("processing");
+    setJdRankingMessage("JD processing and ranking in progress...");
+    try {
+      await apiClient.post(`/requisitions/${reqNumericId}/candidate-pool/rank`, {
+        job_description: jdRankingText,
+        strict_upper_bound: false,
+        force_refresh: true,
+      });
+      const rankingsRes = await apiClient.get<{
+        ranked_candidates: RequisitionRankedCandidate[];
+      }>(`/requisitions/${reqNumericId}/candidate-pool/rankings`);
+      setRankedCandidates(rankingsRes.data?.ranked_candidates ?? []);
+      setJdRankingStatus("completed");
+      setJdRankingMessage("Ranking completed successfully.");
+    } catch {
+      setJdRankingStatus("error");
+      setJdRankingMessage("Failed to process JD ranking.");
+    }
+  }, [reqNumericId, jdRankingText]);
+
+  const handleViewRankedResume = useCallback(
+    async (candidate: RequisitionRankedCandidate) => {
+      if (!candidate.resume_id) {
+        setJdRankingMessage("Resume ID not found for this candidate.");
+        setJdRankingStatus("error");
+        return;
+      }
+      try {
+        const response = await apiClient.get(
+          `/candidate-intake/resumes/${candidate.resume_id}/file`,
+          { responseType: "blob" },
+        );
+        const blob = response.data as Blob;
+        const url = URL.createObjectURL(blob);
+        const isPdf =
+          blob.type === "application/pdf" ||
+          String(blob.type || "").toLowerCase().includes("pdf");
+        setRankedResumePreview({
+          candidateName: candidate.name,
+          url,
+          isPdf,
+        });
+      } catch {
+        setJdRankingMessage("Failed to load candidate resume.");
+        setJdRankingStatus("error");
+      }
+    },
+    [],
+  );
+
+  const closeRankedResumePreview = useCallback(() => {
+    if (rankedResumePreview?.url) {
+      URL.revokeObjectURL(rankedResumePreview.url);
+    }
+    setRankedResumePreview(null);
+  }, [rankedResumePreview]);
+
+  const openAddCandidateFromRanked = async (
+    candidate: RequisitionRankedCandidate,
+  ) => {
+    const selectedMeta = poolSelected.find(
+      (row) => row.profile_id === candidate.profile_id,
+    );
+    const editableItem = ticket?.items.find((it) => canEditItem(it));
+
+    setNewCandidateName(candidate.name || "");
+    setNewCandidateEmail(selectedMeta?.candidate?.email || "");
+    setNewCandidatePhone(selectedMeta?.candidate?.phone || "");
+    setAddCandidateItemId(
+      editableItem?.numericItemId ?? ticket?.items[0]?.numericItemId ?? null,
+    );
+    setSelectedPoolProfileIdForAdd(candidate.profile_id ?? null);
+    setResumeFile(null);
+    setPrefilledResumePath(
+      candidate.resume_id
+        ? `/api/candidate-intake/resumes/${candidate.resume_id}/file`
+        : "",
+    );
+    setShowAddCandidate(true);
+    setTransitionError(null);
+    setTransitionSuccess(null);
+  };
 
   const refetchRequisition = useCallback(async () => {
     const reqId = parseReqId(effectiveTicketId);
@@ -635,6 +933,20 @@ const RequisitionDetail: React.FC<RequisitionDetailsProps> = ({
   useEffect(() => {
     loadCandidates();
   }, [loadCandidates]);
+
+  useEffect(() => {
+    if (activeTab !== "candidates") return;
+    if (!reqNumericId) return;
+    loadCandidatePool();
+  }, [activeTab, reqNumericId, loadCandidatePool]);
+
+  useEffect(() => {
+    return () => {
+      if (rankedResumePreview?.url) {
+        URL.revokeObjectURL(rankedResumePreview.url);
+      }
+    };
+  }, [rankedResumePreview]);
 
   // Load JD PDF for viewer when modal opens (item-level endpoint)
   useEffect(() => {
@@ -689,26 +1001,41 @@ const RequisitionDetail: React.FC<RequisitionDetailsProps> = ({
     setAddingCandidate(true);
     setTransitionError(null);
     try {
-      let resumePath: string | undefined;
-      if (resumeFile) {
-        const uploaded = await uploadResume(resumeFile);
-        resumePath = uploaded.filename;
-      }
       const reqId = parseReqId(effectiveTicketId);
       if (!reqId) return;
-      await createCandidate({
-        requisition_item_id: addCandidateItemId,
-        requisition_id: reqId,
-        full_name: newCandidateName.trim(),
-        email: newCandidateEmail.trim(),
-        phone: newCandidatePhone.trim() || undefined,
-        resume_path: resumePath,
-      });
+      if (selectedPoolProfileIdForAdd) {
+        await apiClient.post(
+          `/requisitions/${reqId}/candidate-pool/${selectedPoolProfileIdForAdd}/promote`,
+          {
+            requisition_item_id: addCandidateItemId,
+            selected_by: user?.user_id ?? null,
+          },
+        );
+        await Promise.all([loadCandidatePool(), loadCandidates()]);
+      } else {
+        let resumePath: string | undefined;
+        if (resumeFile) {
+          const uploaded = await uploadResume(resumeFile);
+          resumePath = uploaded.filename;
+        } else if (prefilledResumePath.trim()) {
+          resumePath = prefilledResumePath.trim();
+        }
+        await createCandidate({
+          requisition_item_id: addCandidateItemId,
+          requisition_id: reqId,
+          full_name: newCandidateName.trim(),
+          email: newCandidateEmail.trim(),
+          phone: newCandidatePhone.trim() || undefined,
+          resume_path: resumePath,
+        });
+      }
       // Reset form
       setNewCandidateName("");
       setNewCandidateEmail("");
       setNewCandidatePhone("");
       setResumeFile(null);
+      setPrefilledResumePath("");
+      setSelectedPoolProfileIdForAdd(null);
       setShowAddCandidate(false);
       setAddCandidateItemId(null);
       await loadCandidates();
@@ -720,6 +1047,38 @@ const RequisitionDetail: React.FC<RequisitionDetailsProps> = ({
       setAddingCandidate(false);
     }
   };
+
+  const handleRemovePipelineCandidate = useCallback(
+    async (candidateToRemove: CandidateView) => {
+      setDeletingCandidateId(candidateToRemove.candidate_id);
+      setTransitionError(null);
+      try {
+        const reqId = parseReqId(effectiveTicketId);
+        if (reqId && candidateToRemove.pool_profile_id) {
+          await apiClient.delete(
+            `/requisitions/${reqId}/candidate-pool/${candidateToRemove.pool_profile_id}`,
+          );
+          await Promise.all([loadCandidatePool(), loadCandidates()]);
+        } else {
+          await deleteCandidate(candidateToRemove.candidate_id);
+        }
+        setCandidates((prev) =>
+          prev.filter((c) => c.candidate_id !== candidateToRemove.candidate_id),
+        );
+        if (selectedCandidate?.candidate_id === candidateToRemove.candidate_id) {
+          setSelectedCandidate(null);
+        }
+        setCandidatePendingDelete(null);
+      } catch (err) {
+        setTransitionError(
+          getCandidateActionErrorMessage(err, "Failed to remove candidate"),
+        );
+      } finally {
+        setDeletingCandidateId(null);
+      }
+    },
+    [selectedCandidate, effectiveTicketId, loadCandidatePool, loadCandidates],
+  );
 
   // ============================================================================
   // HOOKS THAT MUST BE CALLED BEFORE EARLY RETURNS (React Rules of Hooks)
@@ -2586,6 +2945,7 @@ const RequisitionDetail: React.FC<RequisitionDetailsProps> = ({
                               }}
                               onClick={() => {
                                 setAddCandidateItemId(item.numericItemId);
+                                setPrefilledResumePath("");
                                 setShowAddCandidate(true);
                               }}
                             >
@@ -2945,6 +3305,7 @@ const RequisitionDetail: React.FC<RequisitionDetailsProps> = ({
                       ticket.items[0]?.numericItemId ??
                       null,
                   );
+                  setPrefilledResumePath("");
                   setShowAddCandidate(true);
                 }}
                 disabled={!ticket.items.length}
@@ -2952,6 +3313,338 @@ const RequisitionDetail: React.FC<RequisitionDetailsProps> = ({
                 <UserPlus size={14} /> Add Candidate
               </button>
             )}
+          </div>
+
+          <div
+            style={{
+              marginBottom: "20px",
+              padding: "16px",
+              borderRadius: "12px",
+              border: "1px solid var(--border-subtle)",
+              backgroundColor: "var(--bg-secondary)",
+              display: "grid",
+              gap: "12px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "12px",
+                flexWrap: "wrap",
+              }}
+            >
+              <div>
+                <div style={{ fontSize: "14px", fontWeight: 700 }}>
+                  JD Resume Ranking (Requisition Scope)
+                </div>
+                <div
+                  style={{ fontSize: "12px", color: "var(--text-secondary)" }}
+                >
+                  Attach candidates from intake pool, run JD ranking, and view ordered results here.
+                </div>
+              </div>
+              <button
+                className="action-button"
+                type="button"
+                onClick={() => loadCandidatePool()}
+                disabled={candidatePoolLoading}
+                style={{ display: "flex", alignItems: "center", gap: "6px" }}
+              >
+                <RefreshCw size={14} />
+                {candidatePoolLoading ? "Refreshing..." : "Refresh Pool"}
+              </button>
+            </div>
+
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                fontSize: "12px",
+                fontWeight: 600,
+                color:
+                  jdRankingStatus === "completed"
+                    ? "var(--success)"
+                    : jdRankingStatus === "error"
+                      ? "var(--error)"
+                      : jdRankingStatus === "processing"
+                        ? "var(--warning)"
+                        : "var(--text-secondary)",
+              }}
+            >
+              <span
+                style={{
+                  width: "8px",
+                  height: "8px",
+                  borderRadius: "999px",
+                  backgroundColor: "currentColor",
+                }}
+              />
+              {jdRankingStatus === "processing"
+                ? "JD ranking in progress..."
+                : jdRankingStatus === "completed"
+                  ? "JD ranking completed"
+                  : jdRankingStatus === "error"
+                    ? "JD ranking failed"
+                    : "JD ranking idle"}
+            </div>
+
+            {jdRankingMessage && (
+              <div
+                style={{
+                  fontSize: "12px",
+                  color: "var(--text-secondary)",
+                  padding: "8px 10px",
+                  borderRadius: "8px",
+                  backgroundColor: "var(--bg-primary)",
+                  border: "1px solid var(--border-subtle)",
+                }}
+              >
+                {jdRankingMessage}
+              </div>
+            )}
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: "12px",
+              }}
+            >
+              <div
+                style={{
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: "10px",
+                  padding: "12px",
+                  backgroundColor: "var(--bg-primary)",
+                }}
+              >
+                <div style={{ fontSize: "12px", fontWeight: 700, marginBottom: "8px" }}>
+                  Intake Candidate Pool ({poolAvailable.length})
+                </div>
+                <div style={{ maxHeight: "180px", overflowY: "auto", display: "grid", gap: "8px" }}>
+                  {poolAvailable.length === 0 ? (
+                    <div style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>
+                      No candidates available in intake pool.
+                    </div>
+                  ) : (
+                    poolAvailable.map((candidate) => (
+                      <label
+                        key={candidate.profile_id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          fontSize: "12px",
+                          margin: 0,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedProfileIds.includes(candidate.profile_id)}
+                          onChange={(event) => {
+                            const checked = event.target.checked;
+                            setSelectedProfileIds((prev) =>
+                              checked
+                                ? Array.from(new Set([...prev, candidate.profile_id]))
+                                : prev.filter((id) => id !== candidate.profile_id),
+                            );
+                          }}
+                        />
+                        <span>
+                          {candidate.full_name} ({candidate.email || "no email"})
+                        </span>
+                      </label>
+                    ))
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="action-button primary"
+                  style={{ marginTop: "10px", width: "100%" }}
+                  disabled={candidatePoolSyncing || selectedProfileIds.length === 0}
+                  onClick={handleAttachCandidatesToPool}
+                >
+                  {candidatePoolSyncing ? "Attaching..." : "Attach Selected To Requisition"}
+                </button>
+              </div>
+
+              <div
+                style={{
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: "10px",
+                  padding: "12px",
+                  backgroundColor: "var(--bg-primary)",
+                }}
+              >
+                <div style={{ fontSize: "12px", fontWeight: 700, marginBottom: "8px" }}>
+                  Selected For This Requisition ({poolSelected.length})
+                </div>
+                <div style={{ maxHeight: "180px", overflowY: "auto", display: "grid", gap: "8px" }}>
+                  {poolSelected.length === 0 ? (
+                    <div style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>
+                      No candidates attached yet.
+                    </div>
+                  ) : (
+                    poolSelected.map((row) => (
+                      <div
+                        key={row.profile_id}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: "8px",
+                          fontSize: "12px",
+                        }}
+                      >
+                        <span>{row.candidate?.full_name || `Profile ${row.profile_id}`}</span>
+                        <button
+                          type="button"
+                          className="action-button"
+                          onClick={() => handleRemoveFromPool(row.profile_id)}
+                          disabled={candidatePoolSyncing}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  marginBottom: "6px",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                Job Description
+              </label>
+              <textarea
+                rows={6}
+                placeholder="Paste JD to run ranking for attached candidates..."
+                value={jdRankingText}
+                onChange={(event) => setJdRankingText(event.target.value)}
+                style={{
+                  width: "100%",
+                  borderRadius: "10px",
+                  border: "1px solid var(--border-subtle)",
+                  padding: "10px",
+                  fontSize: "13px",
+                  resize: "vertical",
+                }}
+              />
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "8px" }}>
+                <button
+                  type="button"
+                  className="action-button primary"
+                  onClick={handleRunJDRanking}
+                  disabled={jdRankingStatus === "processing" || poolSelected.length === 0}
+                >
+                  {jdRankingStatus === "processing" ? "Processing..." : "Start JD Ranking"}
+                </button>
+              </div>
+            </div>
+
+            <div
+              style={{
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "10px",
+                padding: "12px",
+                backgroundColor: "var(--bg-primary)",
+              }}
+            >
+              <div style={{ fontSize: "13px", fontWeight: 700, marginBottom: "8px" }}>
+                Ranked Candidates ({rankedCandidates.length})
+              </div>
+              {rankedCandidates.length === 0 ? (
+                <div style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>
+                  No ranking results yet. Attach candidates, add JD, and start ranking.
+                </div>
+              ) : (
+                <div style={{ display: "grid", gap: "8px" }}>
+                  {rankedCandidates.map((candidate, index) => (
+                    <div
+                      key={`${candidate.candidate_id}-${index}`}
+                      style={{
+                        border: "1px solid var(--border-subtle)",
+                        borderRadius: "8px",
+                        padding: "10px",
+                        display: "grid",
+                        gap: "6px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          fontSize: "13px",
+                          fontWeight: 600,
+                        }}
+                      >
+                        <span>
+                          #{index + 1} {candidate.name}
+                        </span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <span>{candidate.overall_match_percent}%</span>
+                          <button
+                            type="button"
+                            className="action-button primary"
+                            style={{ fontSize: "11px", padding: "6px 10px" }}
+                            onClick={() => void openAddCandidateFromRanked(candidate)}
+                            disabled={!ticket?.items.some((it) => canEditItem(it))}
+                          >
+                            Add Candidate
+                          </button>
+                          <button
+                            type="button"
+                            className="action-button"
+                            style={{ fontSize: "11px", padding: "6px 10px" }}
+                            onClick={() => handleViewRankedResume(candidate)}
+                            disabled={!candidate.resume_id}
+                          >
+                            View Resume
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
+                        Skill: {candidate.jd_breakdown?.skill_score ?? 0} | Years Worked:{" "}
+                        {candidate.jd_breakdown?.experience_years_detected ?? 0} | JD Context:{" "}
+                        {candidate.jd_breakdown?.jd_context_score ?? 0}
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                        {(Array.isArray(candidate.skills) ? candidate.skills : [])
+                          .slice(0, 8)
+                          .map((skill) => (
+                          <span
+                            key={`${candidate.candidate_id}-${skill.skill}`}
+                            style={{
+                              fontSize: "11px",
+                              padding: "4px 8px",
+                              borderRadius: "999px",
+                              backgroundColor: skill.is_primary
+                                ? "rgba(59,130,246,0.1)"
+                                : "rgba(16,185,129,0.1)",
+                              color: skill.is_primary ? "#1d4ed8" : "#047857",
+                            }}
+                          >
+                            {skill.skill}: {skill.percent}%
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Filters: Item and Stage */}
@@ -3236,6 +3929,17 @@ const RequisitionDetail: React.FC<RequisitionDetailsProps> = ({
                     onChange={(e) => setResumeFile(e.target.files?.[0] ?? null)}
                     style={{ width: "100%", padding: "6px", fontSize: "12px" }}
                   />
+                  {prefilledResumePath && !resumeFile && (
+                    <div
+                      style={{
+                        marginTop: "6px",
+                        fontSize: "11px",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      Resume linked from intake profile.
+                    </div>
+                  )}
                 </div>
               </div>
               <div
@@ -3252,6 +3956,8 @@ const RequisitionDetail: React.FC<RequisitionDetailsProps> = ({
                   onClick={() => {
                     setShowAddCandidate(false);
                     setAddCandidateItemId(null);
+                    setPrefilledResumePath("");
+                    setSelectedPoolProfileIdForAdd(null);
                   }}
                 >
                   Cancel
@@ -3449,6 +4155,22 @@ const RequisitionDetail: React.FC<RequisitionDetailsProps> = ({
                           >
                             {c.current_stage}
                           </span>
+                          {linkedItem && canEditItem(linkedItem) && (
+                            <button
+                              type="button"
+                              className="action-button"
+                              style={{ fontSize: "11px", padding: "4px 8px" }}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setCandidatePendingDelete(c);
+                              }}
+                              disabled={deletingCandidateId === c.candidate_id}
+                            >
+                              {deletingCandidateId === c.candidate_id
+                                ? "Removing..."
+                                : "Remove"}
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -3464,6 +4186,25 @@ const RequisitionDetail: React.FC<RequisitionDetailsProps> = ({
         <CandidateDetailModal
           candidate={selectedCandidate}
           onClose={() => setSelectedCandidate(null)}
+          onStageChange={async (newStage, candidate) => {
+            const reqId = parseReqId(effectiveTicketId);
+            if (reqId && (candidate as CandidateView).pool_profile_id) {
+              await apiClient.patch(
+                `/requisitions/${reqId}/candidate-pool/${(candidate as CandidateView).pool_profile_id}/stage`,
+                {
+                  new_stage: newStage,
+                  updated_by: user?.user_id ?? null,
+                },
+              );
+              const updatedCandidate: CandidateView = {
+                ...(candidate as CandidateView),
+                current_stage: newStage,
+              };
+              await Promise.all([loadCandidatePool(), loadCandidates()]);
+              return updatedCandidate;
+            }
+            return undefined;
+          }}
           onUpdate={(updated) => {
             setCandidates((prev) =>
               prev.map((c) =>
@@ -3477,6 +4218,148 @@ const RequisitionDetail: React.FC<RequisitionDetailsProps> = ({
           }}
           userRoles={userRoles}
         />
+      )}
+
+      {rankedResumePreview && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(15, 23, 42, 0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1200,
+            padding: "20px",
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Resume Preview"
+        >
+          <div
+            style={{
+              width: "min(980px, 100%)",
+              height: "min(88vh, 900px)",
+              borderRadius: "12px",
+              backgroundColor: "var(--bg-primary)",
+              border: "1px solid var(--border-subtle)",
+              overflow: "hidden",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "10px 12px",
+                borderBottom: "1px solid var(--border-subtle)",
+              }}
+            >
+              <div style={{ fontSize: "13px", fontWeight: 600 }}>
+                Resume Preview: {rankedResumePreview.candidateName}
+              </div>
+              <button
+                type="button"
+                className="action-button"
+                onClick={closeRankedResumePreview}
+              >
+                Close
+              </button>
+            </div>
+            <div style={{ flex: 1, minHeight: 0 }}>
+              {rankedResumePreview.isPdf ? (
+                <iframe
+                  title={`Resume Preview ${rankedResumePreview.candidateName}`}
+                  src={rankedResumePreview.url}
+                  style={{ width: "100%", height: "100%", border: "none" }}
+                />
+              ) : (
+                <div
+                  style={{
+                    padding: "16px",
+                    fontSize: "13px",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  Preview is supported for PDF resumes in this view.
+                  <div style={{ marginTop: "10px" }}>
+                    <a href={rankedResumePreview.url} download>
+                      Download Resume
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {candidatePendingDelete && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(15, 23, 42, 0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1250,
+            padding: "20px",
+          }}
+          onClick={() => setCandidatePendingDelete(null)}
+        >
+          <div
+            style={{
+              width: "min(460px, 100%)",
+              borderRadius: "12px",
+              backgroundColor: "var(--bg-primary)",
+              border: "1px solid var(--border-subtle)",
+              boxShadow: "0 20px 50px rgba(15, 23, 42, 0.2)",
+              padding: "16px",
+              display: "grid",
+              gap: "12px",
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div style={{ fontSize: "15px", fontWeight: 700 }}>
+              Remove Candidate
+            </div>
+            <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+              Are you sure you want to remove{" "}
+              <strong>{candidatePendingDelete.full_name}</strong> from the candidate
+              pipeline?
+            </div>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "8px",
+              }}
+            >
+              <button
+                type="button"
+                className="action-button"
+                onClick={() => setCandidatePendingDelete(null)}
+                disabled={deletingCandidateId === candidatePendingDelete.candidate_id}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="action-button"
+                style={{ backgroundColor: "var(--error)", color: "white", border: "none" }}
+                onClick={() => void handleRemovePipelineCandidate(candidatePendingDelete)}
+                disabled={deletingCandidateId === candidatePendingDelete.candidate_id}
+              >
+                {deletingCandidateId === candidatePendingDelete.candidate_id
+                  ? "Removing..."
+                  : "Confirm Remove"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {activeTab === "timeline" && (

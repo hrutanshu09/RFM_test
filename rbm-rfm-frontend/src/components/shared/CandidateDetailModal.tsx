@@ -42,6 +42,10 @@ interface CandidateDetailModalProps {
   candidate: Candidate;
   onClose: () => void;
   onUpdate: (updated: Candidate) => void;
+  onStageChange?: (
+    newStage: Candidate["current_stage"],
+    candidate: Candidate,
+  ) => Promise<Candidate | void>;
   /** Roles that the current user has — used to show/hide action buttons */
   userRoles: string[];
   /** Base URL for the API to construct resume download URLs */
@@ -102,6 +106,7 @@ export default function CandidateDetailModal({
   candidate: initialCandidate,
   onClose,
   onUpdate,
+  onStageChange,
   userRoles,
   apiBaseUrl,
 }: CandidateDetailModalProps) {
@@ -148,11 +153,23 @@ export default function CandidateDetailModal({
     setError(null);
     setTransitioning(true);
     try {
-      const updated = await updateCandidateStage(candidate.candidate_id, {
-        new_stage: newStage as Candidate["current_stage"],
-      });
-      setCandidate(updated);
-      onUpdate(updated);
+      let updated: Candidate | void;
+      if (onStageChange) {
+        updated = await onStageChange(
+          newStage as Candidate["current_stage"],
+          candidate,
+        );
+      } else {
+        updated = await updateCandidateStage(candidate.candidate_id, {
+          new_stage: newStage as Candidate["current_stage"],
+        });
+      }
+      const effectiveUpdated = updated || {
+        ...candidate,
+        current_stage: newStage as Candidate["current_stage"],
+      };
+      setCandidate(effectiveUpdated);
+      onUpdate(effectiveUpdated);
     } catch (err: any) {
       setError(
         getCandidateActionErrorMessage(err, `Failed to move to ${newStage}`),
@@ -231,14 +248,18 @@ export default function CandidateDetailModal({
     if (!showResume || !candidate.resume_path) return;
     if (candidate.resume_path.startsWith("http")) return;
 
-    const filename = candidate.resume_path.split(/[/\\]/).pop();
-    if (!filename) return;
-
     let objectUrl: string | null = null;
     const loadResume = async () => {
       setLoadingResume(true);
       try {
-        const response = await apiClient.get(`/uploads/resume/${filename}`, {
+        const resumePath = candidate.resume_path || "";
+        const endpoint = resumePath.startsWith("/api/")
+          ? resumePath.replace(/^\/api/, "")
+          : resumePath.includes("/candidate-intake/resumes/")
+            ? (resumePath.startsWith("/") ? resumePath : `/${resumePath}`)
+            : `/uploads/resume/${resumePath.split(/[/\\]/).pop()}`;
+
+        const response = await apiClient.get(endpoint, {
           responseType: "blob",
         });
         objectUrl = URL.createObjectURL(response.data);
@@ -274,8 +295,9 @@ export default function CandidateDetailModal({
       (resumeMimeType ?? "").toLowerCase().includes("pdf")
     : false;
 
-  const resumeFilename =
-    candidate.resume_path?.split(/[/\\]/).pop() ?? "resume";
+  const resumeFilename = candidate.resume_path?.includes("/candidate-intake/resumes/")
+    ? `candidate_${candidate.candidate_id}_resume`
+    : candidate.resume_path?.split(/[/\\]/).pop() ?? "resume";
 
   return (
     <div

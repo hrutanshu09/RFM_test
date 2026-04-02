@@ -19,3 +19,10 @@ from db.models.candidate import Candidate
 from db.models.interview import Interview
 from .user_employee_map import UserEmployeeMap
 from .projects import Project, ProjectManager, ProjectTimeline, EmployeeProjectAssignment
+
+from db.models.candidate_intake_submission import CandidateIntakeSubmission
+from db.models.candidate_profile import CandidateProfile
+from db.models.candidate_resume import CandidateResume
+from db.models.requisition_candidate_pool import RequisitionCandidatePool
+
+from db.models.requisition_candidate_ranking_snapshot import RequisitionCandidateRankingSnapshot
