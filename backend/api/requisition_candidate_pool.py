@@ -703,6 +703,8 @@ def rank_selected_candidates(req_id: int, payload: RankCandidatesPayload, db: Se
                         "mentions_in_sections": detail.get("mentions_in_sections", 0),
                         "mentions_in_raw_fallback": detail.get("mentions_in_raw_fallback", 0),
                         "mention_source": detail.get("mention_source", "sections"),
+                        "section_hits": detail.get("section_hits", detail.get("mentions", 0)),
+                        "sections_hit": detail.get("sections_hit", []),
                         "matched_in_sections": detail.get("mentioned_in_sections") or [],
                         "alias_used": bool(detail.get("matched_aliases")),
                         "evidence_count": len(evidence_lines),
