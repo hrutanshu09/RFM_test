@@ -69,7 +69,8 @@ SKILL_ALIASES: dict[str, tuple[str, ...]] = {
 
 
 def _normalize_skill_token(value: str) -> str:
-    return "".join(ch for ch in value.lower().strip() if ch.isalnum() or ch in {"+", ".", "#"})
+    # Use a punctuation-insensitive key for matching/dedup (e.g. Node.js -> nodejs, AWS. -> aws).
+    return "".join(ch for ch in value.lower().strip() if ch.isalnum() or ch in {"+", "#"})
 
 
 def _build_skill_alias_lookup() -> dict[str, str]:
@@ -103,7 +104,9 @@ def _canonicalize_skill_name(value: str) -> str:
     normalized = _normalize_skill_token(value)
     if not normalized:
         return ""
-    return _SKILL_ALIAS_LOOKUP.get(normalized, value.strip())
+    # Preserve human-readable output for unknown skills, but trim noisy edge punctuation.
+    cleaned = value.strip().strip(".,:;()[]{}")
+    return _SKILL_ALIAS_LOOKUP.get(normalized, cleaned)
 
 
 def _normalize_skill_list(raw_skills: object) -> list[str]:
@@ -118,8 +121,9 @@ def _normalize_skill_list(raw_skills: object) -> list[str]:
 
     candidates: list[str] = []
     for part in parts:
-        for token in re.split(r"\s*[,|/]\s*", part):
-            cleaned = token.strip().strip("-* ")
+        # Do not split on "/" so terms like CI/CD or C/C++ remain intact.
+        for token in re.split(r"\s*[,|;]\s*", part):
+            cleaned = token.strip().strip("-* ").strip(".,:;()[]{}")
             if cleaned:
                 candidates.append(cleaned)
 
@@ -168,6 +172,9 @@ def _score_resume_start(text: str) -> float:
     first_line = text.splitlines()[0].strip() if text.splitlines() else ""
     if _looks_like_name_line(first_line):
         score += 6.0
+    # Penalize resumes that begin with a section header before identity/contact lines.
+    if re.match(r"^(work experience|experience|education|skills|projects?)\b", first_line.lower()):
+        score -= 6.0
 
     strong_headers = (
         "profile",
@@ -193,11 +200,54 @@ def _score_resume_start(text: str) -> float:
             score += 2.0 * weight
         if any(h in line for h in sidebar_headers):
             score -= 1.2 * weight
+        # Reward contact signals near the top; typically indicates natural resume reading order.
+        if "@" in line or re.search(r"\+?\d[\d\-\s()]{7,}", line):
+            score += 1.0 * weight
 
     if "education" in "\n".join(first_window):
         score += 1.0
 
     return score
+
+
+def _score_resume_coherence(text: str) -> float:
+    if not text:
+        return -999.0
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return -999.0
+
+    score = _score_resume_start(text)
+    top = lines[:18]
+    top_text = "\n".join(top).lower()
+
+    # Strong signal that order is natural: contact block appears early.
+    if "@" in top_text:
+        score += 3.0
+    if re.search(r"\+?\d[\d\-\s()]{7,}", top_text):
+        score += 2.0
+
+    # If a hard section header is first but likely name appears a few lines later, layout is likely wrong.
+    first_lower = top[0].lower()
+    if re.match(r"^(work experience|experience|education|skills|projects?)\b", first_lower):
+        if any(_looks_like_name_line(line) for line in top[1:8]):
+            score -= 8.0
+
+    # Reward if both name-like line and section header are present near top.
+    if any(_looks_like_name_line(line) for line in top[:6]) and any(
+        re.match(r"^(work experience|experience|education|skills|projects?)\b", line.lower()) for line in top
+    ):
+        score += 2.0
+
+    return score
+
+
+def _choose_best_pdf_text(raw_text: str, reconstructed_text: str) -> tuple[str, str, float, float]:
+    raw_score = _score_resume_coherence(raw_text)
+    reconstructed_score = _score_resume_coherence(reconstructed_text)
+    if raw_score >= reconstructed_score:
+        return raw_text, "raw", raw_score, reconstructed_score
+    return reconstructed_text, "reconstructed", raw_score, reconstructed_score
 
 
 def _reconstruct_page_text_from_blocks(blocks: list[tuple]) -> tuple[str, str, dict[str, object]]:
@@ -270,6 +320,7 @@ def _extract_pdf_text_pymupdf(file_bytes: bytes) -> tuple[str, dict[str, object]
     if fitz is None:
         return "", {"extractor": "pymupdf_unavailable"}
 
+    raw_pages: list[str] = []
     reconstructed_pages: list[str] = []
     page_stats: list[dict[str, object]] = []
     multi_column_pages = 0
@@ -277,6 +328,8 @@ def _extract_pdf_text_pymupdf(file_bytes: bytes) -> tuple[str, dict[str, object]
     doc = fitz.open(stream=file_bytes, filetype="pdf")
     try:
         for idx, page in enumerate(doc):
+            raw_text = page.get_text("text") or ""
+            raw_pages.append(raw_text)
             blocks = page.get_text("blocks")
             reconstructed, layout_mode, meta = _reconstruct_page_text_from_blocks(blocks)
             reconstructed_pages.append(reconstructed)
@@ -294,10 +347,15 @@ def _extract_pdf_text_pymupdf(file_bytes: bytes) -> tuple[str, dict[str, object]
     finally:
         doc.close()
 
-    text = "\n".join(reconstructed_pages)
-    return text, {
+    raw_full = "\n".join(raw_pages)
+    reconstructed_full = "\n".join(reconstructed_pages)
+    chosen_text, chosen_variant, raw_score, reconstructed_score = _choose_best_pdf_text(raw_full, reconstructed_full)
+    return chosen_text, {
         "extractor": "pymupdf",
         "layout_mode": "multi_column" if multi_column_pages > 0 else "single_column",
+        "text_variant_selected": chosen_variant,
+        "raw_order_score": round(raw_score, 2),
+        "reconstructed_order_score": round(reconstructed_score, 2),
         "page_stats": page_stats,
         "page_count": len(page_stats),
     }
@@ -437,7 +495,115 @@ def parse_resume_bytes(
         "education": data.get("education") or [],
         "projects": data.get("projects") or [],
         "work_experience": data.get("work_experience") or [],
+        "raw_text_for_scoring": text[:60000],
         "raw_text_preview": text[:2000],
         "parser_error": None,
     }
+    return payload, None, None
+
+
+def _collect_resume_debug_signals(text: str) -> dict[str, object]:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+    section_header_patterns: tuple[tuple[str, str], ...] = (
+        ("skills", r"^(skills?|key skills?|technical skills?|core skills?|skills summary|competencies)\b"),
+        ("experience", r"^(experience|work experience|professional experience|employment history)\b"),
+        ("projects", r"^(projects?|project experience)\b"),
+        ("education", r"^(education|academic background|qualifications?)\b"),
+        ("summary", r"^(summary|profile|objective)\b"),
+    )
+
+    detected_section_headers: list[dict[str, object]] = []
+    for idx, line in enumerate(lines[:300]):
+        lowered = line.lower().rstrip(":")
+        for section, pattern in section_header_patterns:
+            if re.match(pattern, lowered, flags=re.IGNORECASE):
+                detected_section_headers.append({"line": idx + 1, "section": section, "text": line})
+                break
+
+    date_range_pattern = re.compile(
+        r"\b(?:"
+        r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*[\s\-./,]*\d{2,4}"
+        r"|\d{1,2}[/-]\d{2,4}"
+        r"|\d{4}"
+        r")\s*(?:-|–|—|to)\s*(?:present|current|now|"
+        r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*[\s\-./,]*\d{2,4}"
+        r"|\d{1,2}[/-]\d{2,4}"
+        r"|\d{4})\b",
+        flags=re.IGNORECASE,
+    )
+    years_hint_pattern = re.compile(r"\b(\d+(?:\.\d+)?)\s*\+?\s*(?:years?|yrs?)\b", flags=re.IGNORECASE)
+
+    date_ranges: list[str] = []
+    for match in date_range_pattern.finditer(text):
+        span = match.group(0).strip()
+        if span not in date_ranges:
+            date_ranges.append(span)
+        if len(date_ranges) >= 25:
+            break
+
+    years_hints: list[str] = []
+    for match in years_hint_pattern.finditer(text):
+        hint = match.group(0).strip()
+        if hint not in years_hints:
+            years_hints.append(hint)
+        if len(years_hints) >= 25:
+            break
+
+    return {
+        "line_count": len(lines),
+        "detected_section_headers": detected_section_headers,
+        "date_ranges_detected": date_ranges,
+        "explicit_year_hints": years_hints,
+    }
+
+
+def parse_resume_debug_bytes(
+    file_bytes: bytes,
+    content_type: str,
+    preview_chars: int = 4000,
+    include_full_text: bool = False,
+) -> tuple[Optional[dict], Optional[str], Optional[str]]:
+    text, error, error_type, extraction_meta = _extract_text_for_resume_with_meta(file_bytes, content_type)
+    if error or not text:
+        return None, error, error_type
+
+    data, model_error = _parse_with_gemini(text)
+    if not data:
+        return None, model_error or "Gemini failed to parse resume.", "model"
+
+    raw_skills = data.get("skills") or []
+    normalized_skills = _normalize_skill_list(raw_skills)
+    debug_signals = _collect_resume_debug_signals(text)
+
+    payload = {
+        "parser_used": GEMINI_MODEL,
+        "content_type": content_type,
+        "extractor_meta": extraction_meta,
+        "parsed": {
+            "name": data.get("name"),
+            "email": data.get("email"),
+            "phone": data.get("phone"),
+            "linkedin": data.get("linkedin"),
+            "github": data.get("github"),
+            "skills_raw": raw_skills,
+            "skills_normalized": normalized_skills,
+            "education": data.get("education") or [],
+            "projects": data.get("projects") or [],
+            "work_experience": data.get("work_experience") or [],
+        },
+        "counts": {
+            "skills_raw": len(raw_skills) if isinstance(raw_skills, list) else 0,
+            "skills_normalized": len(normalized_skills),
+            "education": len(data.get("education") or []),
+            "projects": len(data.get("projects") or []),
+            "work_experience": len(data.get("work_experience") or []),
+        },
+        "diagnostics": debug_signals,
+        "raw_text_preview": text[:preview_chars],
+        "parser_error": None,
+    }
+    if include_full_text:
+        payload["raw_text"] = text
+
     return payload, None, None

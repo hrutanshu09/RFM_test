@@ -1,7 +1,7 @@
 from fastapi import APIRouter, File, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from services.resume_parser import parse_resume_bytes
+from services.resume_parser import parse_resume_bytes, parse_resume_debug_bytes
 try:
     import fitz  # PyMuPDF
 except Exception:  # pragma: no cover - optional dependency at runtime
@@ -196,6 +196,8 @@ HTML_PAGE = """<!doctype html>
           <div class="row">
             <input id="file" type="file" accept=".pdf,.docx" />
             <button id="btn">Parse & Autofill</button>
+            <button id="btn-debug" type="button" class="secondary">Parse Debug JSON</button>
+            <button id="btn-copy-debug" type="button" class="secondary">Copy Debug JSON</button>
           </div>
           <div class="hint">Supported: PDF, DOCX</div>
         </div>
@@ -255,11 +257,19 @@ HTML_PAGE = """<!doctype html>
         </form>
 
         <pre id="out">{}</pre>
+        <div class="section">
+          <h2>Debug JSON (Copy/Paste)</h2>
+          <p class="hint">Run "Parse Debug JSON", then copy this block and paste it in chat.</p>
+          <textarea id="debug-json" style="min-height:260px;font-family:Consolas,monospace;"></textarea>
+        </div>
       </div>
     </div>
     <script>
       const btn = document.getElementById("btn");
+      const btnDebug = document.getElementById("btn-debug");
+      const btnCopyDebug = document.getElementById("btn-copy-debug");
       const out = document.getElementById("out");
+      const debugJson = document.getElementById("debug-json");
 
       const educationList = document.getElementById("education-list");
       const projectsList = document.getElementById("projects-list");
@@ -369,6 +379,7 @@ HTML_PAGE = """<!doctype html>
           return;
         }
         btn.disabled = true;
+        btnDebug.disabled = true;
         out.textContent = "Parsing...";
         try {
           const fd = new FormData();
@@ -392,6 +403,46 @@ HTML_PAGE = """<!doctype html>
           out.textContent = String(err);
         } finally {
           btn.disabled = false;
+          btnDebug.disabled = false;
+        }
+      });
+
+      btnDebug.addEventListener("click", async () => {
+        const fileInput = document.getElementById("file");
+        if (!fileInput.files || !fileInput.files[0]) {
+          out.textContent = "Please choose a PDF or DOCX file.";
+          return;
+        }
+        btn.disabled = true;
+        btnDebug.disabled = true;
+        out.textContent = "Parsing debug JSON...";
+        try {
+          const fd = new FormData();
+          fd.append("file", fileInput.files[0]);
+          const res = await fetch("/api/resume-test/parse-debug", { method: "POST", body: fd });
+          const data = await res.json();
+          const asJson = JSON.stringify(data, null, 2);
+          out.textContent = asJson;
+          debugJson.value = asJson;
+        } catch (err) {
+          out.textContent = String(err);
+        } finally {
+          btn.disabled = false;
+          btnDebug.disabled = false;
+        }
+      });
+
+      btnCopyDebug.addEventListener("click", async () => {
+        const text = debugJson.value || "";
+        if (!text.trim()) {
+          out.textContent = "No debug JSON to copy yet. Click Parse Debug JSON first.";
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(text);
+          out.textContent = "Debug JSON copied to clipboard.";
+        } catch (_err) {
+          out.textContent = "Clipboard copy failed. You can still manually copy from the textarea below.";
         }
       });
 
@@ -421,6 +472,177 @@ async def parse_resume(file: UploadFile = File(...)):
         return JSONResponse(status_code=status_code, content={"detail": error})
 
     return JSONResponse(content=payload)
+
+
+@router.post("/api/resume-test/parse-debug")
+async def parse_resume_debug(file: UploadFile = File(...)):
+    content_type = file.content_type or ""
+    file_bytes = await file.read()
+
+    payload, error, error_type = parse_resume_debug_bytes(
+        file_bytes=file_bytes,
+        content_type=content_type,
+        preview_chars=8000,
+        include_full_text=False,
+    )
+    if error:
+        status_code = 400 if error_type in {"unsupported", "extract"} else 500
+        return JSONResponse(status_code=status_code, content={"detail": error})
+
+    return JSONResponse(content=payload)
+
+
+PARSE_DEBUG_HTML_PAGE = """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Resume Parse Debug JSON Test</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Arial, sans-serif;
+        background: #f4f6fb;
+        color: #1d2433;
+      }
+      .wrap {
+        max-width: 980px;
+        margin: 30px auto;
+        padding: 0 16px;
+      }
+      .card {
+        background: #fff;
+        border: 1px solid #e1e7f0;
+        border-radius: 12px;
+        padding: 18px;
+        box-shadow: 0 10px 24px rgba(20, 30, 55, 0.07);
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 22px;
+      }
+      p {
+        margin: 0 0 14px;
+        color: #5a657a;
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .toolbar {
+        padding: 12px;
+        border: 1px dashed #d5ddeb;
+        border-radius: 10px;
+        background: #fafcff;
+      }
+      button {
+        border: none;
+        background: #1f4b99;
+        color: #fff;
+        border-radius: 8px;
+        padding: 9px 14px;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #eef3ff;
+        color: #1f4b99;
+        border: 1px solid #d8e3ff;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      pre, textarea {
+        margin-top: 14px;
+        background: #0f172a;
+        color: #e5edf8;
+        border-radius: 10px;
+        padding: 14px;
+        width: 100%;
+        border: 1px solid #1d2b4a;
+        overflow: auto;
+      }
+      pre {
+        max-height: 320px;
+      }
+      textarea {
+        min-height: 300px;
+        font-family: Consolas, monospace;
+      }
+      .hint {
+        font-size: 12px;
+        color: #66748f;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1>Resume Parse Debug JSON Test</h1>
+        <p>Upload PDF/DOCX and get parser debug JSON from <code>/api/resume-test/parse-debug</code>.</p>
+
+        <div class="toolbar row">
+          <input id="file" type="file" accept=".pdf,.docx" />
+          <button id="btn">Parse Debug JSON</button>
+          <button id="copy" class="secondary" type="button">Copy JSON</button>
+        </div>
+        <div class="hint">Use this output to debug skills ranking and experience extraction.</div>
+        <pre id="out">{}</pre>
+        <textarea id="json" placeholder="Debug JSON will appear here..."></textarea>
+      </div>
+    </div>
+    <script>
+      const btn = document.getElementById("btn");
+      const copy = document.getElementById("copy");
+      const out = document.getElementById("out");
+      const json = document.getElementById("json");
+
+      btn.addEventListener("click", async () => {
+        const fileInput = document.getElementById("file");
+        if (!fileInput.files || !fileInput.files[0]) {
+          out.textContent = "Please choose a PDF or DOCX file.";
+          return;
+        }
+        btn.disabled = true;
+        out.textContent = "Parsing debug JSON...";
+        try {
+          const fd = new FormData();
+          fd.append("file", fileInput.files[0]);
+          const res = await fetch("/api/resume-test/parse-debug", { method: "POST", body: fd });
+          const data = await res.json();
+          const text = JSON.stringify(data, null, 2);
+          out.textContent = text;
+          json.value = text;
+        } catch (err) {
+          out.textContent = String(err);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      copy.addEventListener("click", async () => {
+        if (!json.value.trim()) {
+          out.textContent = "No JSON available yet. Parse first.";
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(json.value);
+          out.textContent = "JSON copied to clipboard.";
+        } catch (_err) {
+          out.textContent = "Clipboard copy failed. Please copy from the text area manually.";
+        }
+      });
+    </script>
+  </body>
+</html>
+"""
+
+
+@router.get("/resume-test-parse-debug", response_class=HTMLResponse)
+def resume_test_parse_debug_ui():
+    return HTMLResponse(PARSE_DEBUG_HTML_PAGE)
 
 
 PYMUPDF_HTML_PAGE = """<!doctype html>
@@ -584,6 +806,8 @@ def _score_resume_start(text: str) -> float:
     first_line = text.splitlines()[0].strip() if text.splitlines() else ""
     if _looks_like_name_line(first_line):
         score += 6.0
+    if first_line and any(first_line.lower().startswith(h) for h in ("work experience", "experience", "education", "skills", "projects")):
+        score -= 6.0
 
     strong_headers = (
         "profile",
@@ -609,12 +833,39 @@ def _score_resume_start(text: str) -> float:
             score += 2.0 * weight
         if any(h in line for h in sidebar_headers):
             score -= 1.2 * weight
+        if "@" in line:
+            score += 1.0 * weight
 
     top_text = "\n".join(first_window)
     if "education" in top_text:
         score += 1.0
 
     return score
+
+
+def _score_resume_coherence(text: str) -> float:
+    if not text:
+        return -999.0
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return -999.0
+    score = _score_resume_start(text)
+    top = lines[:18]
+    top_text = "\n".join(top).lower()
+    if "@" in top_text:
+        score += 3.0
+    if top and any(top[0].lower().startswith(h) for h in ("work experience", "experience", "education", "skills", "projects")):
+        if any(_looks_like_name_line(line) for line in top[1:8]):
+            score -= 8.0
+    return score
+
+
+def _choose_best_pdf_text(raw_text: str, reconstructed_text: str) -> tuple[str, str, float, float]:
+    raw_score = _score_resume_coherence(raw_text)
+    reconstructed_score = _score_resume_coherence(reconstructed_text)
+    if raw_score >= reconstructed_score:
+        return raw_text, "raw", raw_score, reconstructed_score
+    return reconstructed_text, "reconstructed", raw_score, reconstructed_score
 
 
 def _reconstruct_page_text_from_blocks(blocks: list[tuple]) -> tuple[str, str, dict[str, object]]:
@@ -725,9 +976,17 @@ def _extract_with_pymupdf(file_bytes: bytes) -> dict[str, object]:
         doc.close()
 
     doc_layout = "multi_column" if multi_column_pages > 0 else "single_column"
+    raw_full = "\n".join(raw_pages)
+    reconstructed_full = "\n".join(reconstructed_pages)
+    chosen_text, chosen_variant, raw_score, reconstructed_score = _choose_best_pdf_text(raw_full, reconstructed_full)
+
     return {
         "raw_text": "\n".join(raw_pages),
         "reconstructed_text": "\n".join(reconstructed_pages),
+        "selected_text": chosen_text,
+        "text_variant_selected": chosen_variant,
+        "raw_order_score": round(raw_score, 2),
+        "reconstructed_order_score": round(reconstructed_score, 2),
         "page_stats": page_stats,
         "layout_mode": doc_layout,
     }
@@ -773,15 +1032,20 @@ async def parse_resume_pymupdf(
         "content_type": content_type,
         "chars_extracted_raw": len(raw_text),
         "chars_extracted_reconstructed": len(reconstructed_text),
+        "text_variant_selected": extracted.get("text_variant_selected", "reconstructed"),
+        "raw_order_score": extracted.get("raw_order_score"),
+        "reconstructed_order_score": extracted.get("reconstructed_order_score"),
         "page_count": len(page_stats),
         "layout_mode": extracted.get("layout_mode", "single_column"),
         "page_stats": page_stats,
         "raw_text_preview": raw_text[:preview_chars],
         "reconstructed_text_preview": reconstructed_text[:preview_chars],
+        "selected_text_preview": str(extracted.get("selected_text") or "")[:preview_chars],
     }
     if include_full:
         payload["raw_text"] = raw_text
         payload["reconstructed_text"] = reconstructed_text
+        payload["selected_text"] = extracted.get("selected_text")
 
     return JSONResponse(content=payload)
 

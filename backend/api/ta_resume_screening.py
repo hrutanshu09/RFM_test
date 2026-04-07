@@ -639,17 +639,7 @@ def _keyword_overlap_percent(jd_tokens: set[str], candidate_text: str) -> int:
 def _entry_to_text(entry: object) -> str:
     if isinstance(entry, dict):
         parts: list[str] = []
-        for key in (
-            "name",
-            "project_name",
-            "title",
-            "role",
-            "company",
-            "summary",
-            "brief_summary",
-            "description",
-            "dates",
-        ):
+        for key in ("name", "summary", "description"):
             value = entry.get(key)
             if value:
                 parts.append(str(value).strip())
@@ -1086,14 +1076,12 @@ async def process_with_jd(job_id: str, payload: JDProcessRequest):
                         "debug": {
                             "base": detail.get("base"),
                             "occurrence_bonus": detail.get("bonus"),
-                            "mentions": detail.get("mentions", 0),
-                            "mentions_in_sections": detail.get("mentions_in_sections", 0),
-                            "mentions_in_raw_fallback": detail.get("mentions_in_raw_fallback", 0),
-                            "mention_source": detail.get("mention_source", "sections"),
-                            "section_hits": detail.get("section_hits", detail.get("mentions", 0)),
-                            "sections_hit": detail.get("sections_hit", []),
+                            "mention_events": detail.get("mentions"),
+                            "raw_section_mentions": detail.get("raw_section_mentions") or {},
+                            "capped_section_mentions": detail.get("capped_section_mentions") or {},
+                            "duplicate_evidence_dropped": detail.get("duplicate_evidence_dropped", 0),
                             "matched_in_sections": detail.get("mentioned_in_sections") or [],
-                            "alias_used": bool(detail.get("alias_used", bool(detail.get("matched_aliases")))),
+                            "alias_used": bool(detail.get("matched_aliases")),
                             "evidence_count": len(evidence_lines),
                             "matched_tokens": detail.get("matched_aliases") or [],
                         },
