@@ -1,5 +1,5 @@
 from services.resume_parser import _normalize_skill_list
-from services.ta_jd_screening import _extract_candidate_years, _skill_component
+from services.ta_jd_screening import _extract_candidate_years, _jd_tokens_from_text, _skill_component, score_candidate_against_jd
 
 
 def test_normalize_skill_list_preserves_compound_skills_and_cleans_punctuation():
@@ -49,8 +49,9 @@ Experience: Built Python services
     detail = details[0]
 
     assert detail["base"] == 50
-    assert detail["mentions"] >= 4
-    assert detail["score"] > 60
+    # Mention counting is unit-based (section evidence events), not repeated-token based.
+    assert detail["mentions"] == 2
+    assert detail["score"] == 60
 
 
 def test_experience_years_uses_date_ranges_before_explicit_year_hints():
@@ -62,3 +63,32 @@ def test_experience_years_uses_date_ranges_before_explicit_year_hints():
     assert debug["method"] == "date_ranges"
     assert abs(years - 2.33) < 0.05
     assert debug["explicit_years_hint"] == 10.0
+
+
+def test_unified_scoring_uses_section_caps_for_mentions():
+    raw_text = """
+Skills: React
+Projects: React dashboard
+Projects: React analytics portal
+Projects: React reusable components
+Work Experience: Built React apps
+"""
+    parsed_resume = {"name": "Sample", "skills": [], "projects": [], "work_experience": [], "education": []}
+    scored = score_candidate_against_jd(
+        parsed_resume=parsed_resume,
+        raw_text=raw_text,
+        primary=["React.js"],
+        secondary=[],
+        jd_tokens=_jd_tokens_from_text("Need React developer"),
+        min_years=None,
+        max_years=None,
+        strict_upper_bound=False,
+        filename="sample.pdf",
+        debug=True,
+    )
+    detail = scored["skill_details"][0]
+
+    # Projects are capped at 2 mention events even if raw lines contain more.
+    assert detail["raw_section_mentions"]["projects"] == 3
+    assert detail["capped_section_mentions"]["projects"] == 2
+    assert detail["mentions"] == 3  # 2 from projects cap + 1 from work_experience

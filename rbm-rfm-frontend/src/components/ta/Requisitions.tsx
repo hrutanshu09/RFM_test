@@ -410,6 +410,18 @@ const Requisitions: React.FC<RequisitionsProps> = ({
   const [allUsers, setAllUsers] = useState<BackendUser[]>([]);
   const [visibleCount, setVisibleCount] = useState(20);
 
+  const openManageItems = useCallback(
+    (reqId: string) => {
+      // Prefer explicit manage handler when provided; otherwise open details view.
+      if (onManageItems) {
+        onManageItems(reqId);
+        return;
+      }
+      onViewRequisition?.(reqId);
+    },
+    [onManageItems, onViewRequisition],
+  );
+
   useEffect(() => {
     setVisibleCount(20);
   }, [activeFilter, searchQuery]);
@@ -1223,7 +1235,7 @@ const Requisitions: React.FC<RequisitionsProps> = ({
                               {/* Assigned to current TA: Full access */}
                               <button
                                 className="action-button primary"
-                                onClick={() => onManageItems?.(req.id)}
+                                onClick={() => openManageItems(req.id)}
                                 style={{
                                   fontSize: "12px",
                                   padding: "6px 12px",
@@ -1231,16 +1243,6 @@ const Requisitions: React.FC<RequisitionsProps> = ({
                                 title="Manage items: Upload CV, Map Resource, Update Progress"
                               >
                                 Manage Items
-                              </button>
-                              <button
-                                className="action-button"
-                                onClick={() => onViewRequisition?.(req.id)}
-                                style={{
-                                  fontSize: "12px",
-                                  padding: "6px 12px",
-                                }}
-                              >
-                                View
                               </button>
                             </>
                           ) : (

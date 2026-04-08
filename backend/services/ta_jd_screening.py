@@ -304,6 +304,8 @@ SECTION_MENTION_CAPS: dict[str, int] = {
     "education": 1,
 }
 
+SCORING_WEIGHTS: dict[str, float] = {"skills": 0.6, "experience": 0.3, "jd_context": 0.1}
+
 
 def _normalize_domain_label(value: object) -> Optional[str]:
     if value is None:
@@ -967,6 +969,14 @@ def _keyword_overlap_percent(jd_tokens: set[str], candidate_text: str) -> int:
     return int(round((overlap / max(1, len(jd_tokens))) * 100))
 
 
+def _jd_tokens_from_text(jd_text: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[A-Za-z0-9+#.]{3,}", jd_text.lower())
+        if token not in {"with", "from", "that", "this", "have", "will", "and", "for", "the"}
+    }
+
+
 def _entry_to_text(entry: object) -> str:
     if isinstance(entry, dict):
         parts: list[str] = []
@@ -1394,6 +1404,50 @@ def _skill_component(
     return final, details
 
 
+def score_candidate_against_jd(
+    *,
+    parsed_resume: dict[str, Any],
+    raw_text: str,
+    primary: list[str],
+    secondary: list[str],
+    jd_tokens: set[str],
+    min_years: Optional[float],
+    max_years: Optional[float],
+    strict_upper_bound: bool,
+    filename: str = "resume",
+    debug: bool = False,
+) -> dict[str, Any]:
+    skill_score, skill_details = _skill_component(parsed_resume, raw_text, primary, secondary)
+    work_entries = _build_work_experience_entries(parsed_resume, raw_text)
+    candidate_years, experience_debug = _extract_candidate_years(work_entries)
+    experience_score, experience_fit = _experience_score(candidate_years, min_years, max_years, strict_upper_bound)
+    jd_context_score = _keyword_overlap_percent(jd_tokens, _resume_text_blob(parsed_resume))
+
+    final_score = int(
+        round(
+            (skill_score * SCORING_WEIGHTS["skills"])
+            + (experience_score * SCORING_WEIGHTS["experience"])
+            + (jd_context_score * SCORING_WEIGHTS["jd_context"])
+        )
+    )
+
+    item: dict[str, Any] = {
+        "filename": filename,
+        "name": parsed_resume.get("name") or filename,
+        "score": final_score,
+        "skill_score": skill_score,
+        "experience_score": experience_score,
+        "jd_context_score": jd_context_score,
+        "experience_years_detected": candidate_years,
+        "experience_fit": experience_fit,
+        "experience_debug": experience_debug,
+        "skill_details": skill_details,
+    }
+    if debug:
+        item["weights"] = dict(SCORING_WEIGHTS)
+    return item
+
+
 def rank_uploaded_resumes(
     files: list[dict[str, Any]],
     jd_text: str,
@@ -1416,11 +1470,7 @@ def rank_uploaded_resumes(
     max_years = jd_parsed.get("max_experience_years")
     strict = bool(jd_parsed.get("strict_upper_bound"))
 
-    jd_tokens = {
-        token
-        for token in re.findall(r"[A-Za-z0-9+#.]{3,}", jd_text.lower())
-        if token not in {"with", "from", "that", "this", "have", "will", "and", "for", "the"}
-    }
+    jd_tokens = _jd_tokens_from_text(jd_text)
 
     ranked_candidates: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
@@ -1439,29 +1489,18 @@ def rank_uploaded_resumes(
             errors.append({"filename": filename, "error": parse_error or "Parse failed"})
             continue
 
-        skill_score, skill_details = _skill_component(parsed_resume, raw_text or "", primary, secondary)
-        work_entries = _build_work_experience_entries(parsed_resume, raw_text or "")
-        candidate_years, experience_debug = _extract_candidate_years(work_entries)
-        experience_score, experience_fit = _experience_score(candidate_years, min_years, max_years, strict)
-        jd_context_score = _keyword_overlap_percent(jd_tokens, _resume_text_blob(parsed_resume))
-
-        final_score = int(round((skill_score * 0.6) + (experience_score * 0.3) + (jd_context_score * 0.1)))
-
-        item: dict[str, Any] = {
-            "filename": filename,
-            "name": parsed_resume.get("name") or filename,
-            "score": final_score,
-            "skill_score": skill_score,
-            "experience_score": experience_score,
-            "jd_context_score": jd_context_score,
-            "experience_years_detected": candidate_years,
-            "experience_fit": experience_fit,
-            "experience_debug": experience_debug,
-            "skill_details": skill_details,
-        }
-
-        if debug:
-            item["weights"] = {"skills": 0.6, "experience": 0.3, "jd_context": 0.1}
+        item = score_candidate_against_jd(
+            parsed_resume=parsed_resume,
+            raw_text=raw_text or "",
+            primary=primary,
+            secondary=secondary,
+            jd_tokens=jd_tokens,
+            min_years=min_years,
+            max_years=max_years,
+            strict_upper_bound=strict,
+            filename=filename,
+            debug=debug,
+        )
 
         ranked_candidates.append(item)
 
@@ -1469,7 +1508,7 @@ def rank_uploaded_resumes(
 
     response: dict[str, Any] = {
         "jd_parsed": jd_parsed,
-        "weights": {"skills": 0.6, "experience": 0.3, "jd_context": 0.1},
+        "weights": dict(SCORING_WEIGHTS),
         "ranked_candidates": ranked_candidates,
         "errors": errors,
         "total_uploaded": len(files),
@@ -1492,11 +1531,7 @@ def rank_uploaded_resumes_from_parsed(
     max_years = jd_parsed.get("max_experience_years")
     strict = bool(jd_parsed.get("strict_upper_bound"))
 
-    jd_tokens = {
-        token
-        for token in re.findall(r"[A-Za-z0-9+#.]{3,}", jd_text.lower())
-        if token not in {"with", "from", "that", "this", "have", "will", "and", "for", "the"}
-    }
+    jd_tokens = _jd_tokens_from_text(jd_text)
 
     ranked_candidates: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
@@ -1515,29 +1550,18 @@ def rank_uploaded_resumes_from_parsed(
             errors.append({"filename": filename, "error": parse_error or "Parse failed"})
             continue
 
-        skill_score, skill_details = _skill_component(parsed_resume, raw_text or "", primary, secondary)
-        work_entries = _build_work_experience_entries(parsed_resume, raw_text or "")
-        candidate_years, experience_debug = _extract_candidate_years(work_entries)
-        experience_score, experience_fit = _experience_score(candidate_years, min_years, max_years, strict)
-        jd_context_score = _keyword_overlap_percent(jd_tokens, _resume_text_blob(parsed_resume))
-
-        final_score = int(round((skill_score * 0.6) + (experience_score * 0.3) + (jd_context_score * 0.1)))
-
-        item: dict[str, Any] = {
-            "filename": filename,
-            "name": parsed_resume.get("name") or filename,
-            "score": final_score,
-            "skill_score": skill_score,
-            "experience_score": experience_score,
-            "jd_context_score": jd_context_score,
-            "experience_years_detected": candidate_years,
-            "experience_fit": experience_fit,
-            "experience_debug": experience_debug,
-            "skill_details": skill_details,
-        }
-
-        if debug:
-            item["weights"] = {"skills": 0.6, "experience": 0.3, "jd_context": 0.1}
+        item = score_candidate_against_jd(
+            parsed_resume=parsed_resume,
+            raw_text=raw_text or "",
+            primary=primary,
+            secondary=secondary,
+            jd_tokens=jd_tokens,
+            min_years=min_years,
+            max_years=max_years,
+            strict_upper_bound=strict,
+            filename=filename,
+            debug=debug,
+        )
 
         ranked_candidates.append(item)
 
@@ -1545,7 +1569,7 @@ def rank_uploaded_resumes_from_parsed(
 
     response: dict[str, Any] = {
         "jd_parsed": jd_parsed,
-        "weights": {"skills": 0.6, "experience": 0.3, "jd_context": 0.1},
+        "weights": dict(SCORING_WEIGHTS),
         "ranked_candidates": ranked_candidates,
         "errors": errors,
         "total_uploaded": len(files),

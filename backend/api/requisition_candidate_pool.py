@@ -19,12 +19,8 @@ from db.session import get_db
 from db.models.requisition_candidate_ranking_snapshot import RequisitionCandidateRankingSnapshot
 from services.ta_jd_screening import (
     parse_jd_validated,
-    _build_work_experience_entries,
-    _experience_score,
-    _extract_candidate_years,
-    _keyword_overlap_percent,
-    _resume_text_blob,
-    _skill_component,
+    _jd_tokens_from_text,
+    score_candidate_against_jd,
 )
 
 router = APIRouter(prefix="/requisitions", tags=["Requisition Candidate Pool"])
@@ -657,11 +653,7 @@ def rank_selected_candidates(req_id: int, payload: RankCandidatesPayload, db: Se
     primary = list(jd_parsed.get("primary_skills") or [])
     secondary = list(jd_parsed.get("secondary_skills") or [])
 
-    jd_tokens = {
-        token
-        for token in __import__("re").findall(r"[A-Za-z0-9+#.]{3,}", jd_text.lower())
-        if token not in {"with", "from", "that", "this", "have", "will", "and", "for", "the"}
-    }
+    jd_tokens = _jd_tokens_from_text(jd_text)
 
     ranked = []
     errors = []
@@ -680,13 +672,27 @@ def rank_selected_candidates(req_id: int, payload: RankCandidatesPayload, db: Se
             errors.append({"profile_id": row.profile_id, "error": "No parsed payload available"})
             continue
 
-        raw_text = str(parsed_resume.get("raw_text_preview") or "")
-        skill_score, skill_details = _skill_component(parsed_resume, raw_text, primary, secondary)
-        work_entries = _build_work_experience_entries(parsed_resume, raw_text)
-        candidate_years, experience_debug = _extract_candidate_years(work_entries)
-        experience_score, experience_fit = _experience_score(candidate_years, min_years, max_years, strict)
-        jd_context_score = _keyword_overlap_percent(jd_tokens, _resume_text_blob(parsed_resume))
-        final_score = int(round((skill_score * 0.6) + (experience_score * 0.3) + (jd_context_score * 0.1)))
+        raw_text = str(parsed_resume.get("raw_text_for_scoring") or parsed_resume.get("raw_text_preview") or "")
+        scored = score_candidate_against_jd(
+            parsed_resume=parsed_resume,
+            raw_text=raw_text,
+            primary=primary,
+            secondary=secondary,
+            jd_tokens=jd_tokens,
+            min_years=min_years,
+            max_years=max_years,
+            strict_upper_bound=strict,
+            filename=f"profile_{row.profile_id}",
+            debug=payload.debug,
+        )
+        skill_score = int(scored.get("skill_score", 0) or 0)
+        skill_details = list(scored.get("skill_details") or [])
+        experience_score = int(scored.get("experience_score", 0) or 0)
+        jd_context_score = int(scored.get("jd_context_score", 0) or 0)
+        final_score = int(scored.get("score", 0) or 0)
+        candidate_years = float(scored.get("experience_years_detected", 0.0) or 0.0)
+        experience_fit = str(scored.get("experience_fit") or "no_requirement")
+        experience_debug = scored.get("experience_debug") or {}
 
         skills = []
         for detail in skill_details:
@@ -700,11 +706,10 @@ def rank_selected_candidates(req_id: int, payload: RankCandidatesPayload, db: Se
                     "debug": {
                         "base": detail.get("base"),
                         "occurrence_bonus": detail.get("bonus"),
-                        "mentions_in_sections": detail.get("mentions_in_sections", 0),
-                        "mentions_in_raw_fallback": detail.get("mentions_in_raw_fallback", 0),
-                        "mention_source": detail.get("mention_source", "sections"),
-                        "section_hits": detail.get("section_hits", detail.get("mentions", 0)),
-                        "sections_hit": detail.get("sections_hit", []),
+                        "mention_events": detail.get("mentions"),
+                        "raw_section_mentions": detail.get("raw_section_mentions") or {},
+                        "capped_section_mentions": detail.get("capped_section_mentions") or {},
+                        "duplicate_evidence_dropped": detail.get("duplicate_evidence_dropped", 0),
                         "matched_in_sections": detail.get("mentioned_in_sections") or [],
                         "alias_used": bool(detail.get("matched_aliases")),
                         "evidence_count": len(evidence_lines),
